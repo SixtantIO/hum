@@ -8,16 +8,27 @@
 (set! *warn-on-reflection* true)
 
 
+(def ^:private memoized-masks
+  (let [pow2dec (fn [i] (.subtract (.pow BigInteger/TWO (biginteger i)) BigInteger/ONE))]
+    (into {} (map (juxt identity pow2dec)) (range 128))))
+
+
+(defn- mask* [bit-length]
+  (let [bit-length (max bit-length 0)
+        pow2dec (fn [i] (.subtract (.pow BigInteger/TWO (biginteger i)) BigInteger/ONE))]
+    (or (get memoized-masks bit-length)
+        (pow2dec bit-length))))
+
+
 (defn pack-two-ints
   "Pack two unsigned integers into one integer whose right `right-bit-length`
   bits represent the `right` integer, with all remaining bits to the left
   representing the `left` integer."
   [^BigInteger left ^BigInteger right right-bit-length]
-  (let [mask (fn [bl] (.subtract (.pow BigInteger/TWO (max bl 0)) BigInteger/ONE))]
-    (when-not (= (.and right (mask right-bit-length)) right)
-      (throw (ArithmeticException.
-               (format "Integer %s does not fit inside of %s bits."
-                       right right-bit-length)))))
+  (when-not (= (.and right (mask* right-bit-length)) right)
+    (throw (ArithmeticException.
+             (format "Integer %s does not fit inside of %s bits."
+                     right right-bit-length))))
   (.or right (.shiftLeft left right-bit-length)))
 
 
@@ -28,10 +39,9 @@
   The `right` integer is represented by the right `right-bit-length` bits of
   `n`, with all remaining bits to the left representing the `left` integer."
   [^BigInteger n right-bit-length]
-  (let [mask (fn [bl] (.subtract (.pow BigInteger/TWO (max bl 0)) BigInteger/ONE))]
-    [(.and (.shiftRight n right-bit-length)
-           (mask (- (.bitLength n) right-bit-length)))
-     (.and n (mask right-bit-length))]))
+  [(.and (.shiftRight n right-bit-length)
+         (mask* (- (.bitLength n) right-bit-length)))
+   (.and n (mask* right-bit-length))])
 
 
 (comment
@@ -114,4 +124,66 @@
 
   (unpack-ints (biginteger 10860217) [:n 3 5])
   ;=> [42422 5 25]
+  )
+
+
+(defn uint->ubytes
+  "Return the binary representation for the integer `i`, as the shorted vector
+  of unsigned byte values (represented on the JVM as ints, since bytes are
+  signed)."
+  [^BigInteger i]
+  (let [mask (biginteger 0xFF)]
+    (loop [^BigInteger i i
+           bytes []]
+      (if (< i 256)
+        (conj bytes i)
+        (recur
+          (.shiftRight i 8)
+          (conj bytes (.and i mask)))))))
+
+
+(defn ubytes->unit
+  "Given an arbitrary-length vector of unsigned byte values, return an unsigned
+  integer."
+  [from-ubytes]
+  (let [from-bytes (rseq from-ubytes)]
+    (loop [b (rest from-bytes)
+           idx (dec (count from-bytes))
+           n (.shiftLeft (biginteger (first from-bytes)) (* idx 8))]
+      (if-let [next-byte (first b)]
+        (recur
+          (rest b)
+          (dec idx)
+          (.or n (.shiftLeft (biginteger next-byte) (* (dec idx) 8))))
+        n))))
+
+
+(comment
+  ;; E.g. for some big 'ol integer
+  (def i (biginteger 123456789101112131415161718192021222324252627282930))
+
+  (.bitLength i)
+  ;=> 167
+
+  ;; We expect 21 bytes for the minimal representation
+  (/ 167 8.0)
+  ;=> 20.875
+
+
+  ;; Remember, these bytes are unsigned, so you'd get an overflow if you tried
+  ;; (byte 256), since all JVM bytes are signed. But it's not hard to convert
+  ;; between the two.
+  (uint->ubytes i)
+  ;=> [242 171 1 192 1 69 238 76 187 25 128 113 131 67 39 138 37 227 249 120 84]
+
+  ;; There are indeed 21 bytes
+  (count (uint->ubytes i))
+  ;=> 21
+
+  ;; And we can read it back in
+  (ubytes->unit (uint->ubytes i))
+  ;=> 123456789101112131415161718192021222324252627282930
+
+  (= (ubytes->unit (uint->ubytes i)) i)
+  ;=> true
   )

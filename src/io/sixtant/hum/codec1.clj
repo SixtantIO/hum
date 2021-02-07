@@ -3,12 +3,15 @@
   (:require [org.clojars.smee.binary.core :as b]
             [io.sixtant.hum.serialize :as ser]
             [io.sixtant.hum.messages :as messages]
+            [io.sixtant.hum.uint :as uint]
             [clojure.set :as set]
-            [taoensso.truss :as truss])
+            [taoensso.truss :as truss]
+            [clojure.java.io :as io])
   (:import (java.math RoundingMode)
            (java.io ByteArrayOutputStream ByteArrayInputStream OutputStream InputStream NotSerializableException Closeable EOFException)
            (io.sixtant.hum.messages OrderBookSnapshot OrderBookDiff)
-           (clojure.lang IFn)))
+           (clojure.lang IFn)
+           (java.nio ByteBuffer)))
 
 
 (set! *warn-on-reflection* true)
@@ -35,19 +38,46 @@
           (format "Couldn't encode qty %s with lot size %s" qty lot-size))))))
 
 
-(defn biginteger-to-padded-bytes [^BigInteger i byte-length]
-  (let [unpadded (.toByteArray i)
+(defn biginteger-to-padded-bytes [^BigInteger signed-int byte-length]
+  (let [unpadded (.toByteArray signed-int)
         padding (- byte-length (count unpadded))]
 
     (when (neg? padding)
       (throw
-        (ArithmeticException.
-          (format "%s cannot be represented in %s bytes" i byte-length))))
+        (NotSerializableException.
+          (format "%s cannot be represented in %s bytes" signed-int
+                  byte-length))))
 
     (if (pos? padding)
-      (let [padding-byte (if (neg? i) 0xFF 0x00)]
+      (let [padding-byte (if (neg? signed-int) 0xFF 0x00)]
         (byte-array (concat (repeat padding padding-byte) unpadded)))
       unpadded)))
+
+
+(defn uints
+  "A codec for packing a vector of unsigned integers of arbitrary bit lengths
+  into the smallest possible unsigned bytes vector.
+
+  E.g. (uints-codec 3 5) packs a 3-bit integer and a 5-bit integer into a
+  single unsigned byte."
+  [& bit-lengths]
+  (let [n (count bit-lengths)
+        bit-length (reduce + bit-lengths)
+        byte-length (long (Math/ceil (/ bit-length 8.0)))]
+    (b/compile-codec
+      (b/repeated :ubyte :length byte-length)
+      (fn [uints]
+        (assert (= (count uints) n) (str "codec is for " n " integers"))
+        (let [rpad-zeros (fn [bs l]
+                           (if (< (count bs) l)
+                             (into bs (repeat (- l (count bs)) 0x00))
+                             bs))]
+          (-> uints
+              (uint/pack-ints bit-lengths)
+              uint/uint->ubytes
+              (rpad-zeros byte-length))))
+      (fn [ubytes]
+        (-> ubytes uint/ubytes->unit (uint/unpack-ints bit-lengths))))))
 
 
 ;;; DTOs -- low-level messages whose fields map 1:1 with their binary
@@ -65,8 +95,8 @@
 (def snapshot-codec ; codec for all fields except the levels
   (b/ordered-map
     :timestamp  :ulong ; microsecond unix epoch timestamp
-    :pbytes     :byte
-    :qbytes     :byte
+    :pbits      :byte
+    :qbits      :byte
     :tick       :byte
     :tick-scale :byte
     :lot        :byte
@@ -75,8 +105,8 @@
 
 
 (defrecord Snapshot [timestamp
-                     pbytes
-                     qbytes
+                     pbits
+                     qbits
                      tick
                      tick-scale
                      lot
@@ -89,21 +119,27 @@
     (b/encode snapshot-codec out this) ; write all fixed-length fields
     (try
       (doseq [level levels]
-        (.write ^OutputStream out ^bytes (biginteger-to-padded-bytes (:ticks level) pbytes))
-        (.write ^OutputStream out ^bytes (biginteger-to-padded-bytes (:lots level) qbytes)))
+        (b/encode
+          (uints pbits 1 (dec qbits))
+          out
+          [(:ticks level)
+           (if (pos? (:lots level)) BigInteger/ONE BigInteger/ZERO)
+           (.abs ^BigInteger (:lots level))])
+        #_(.write ^OutputStream out ^bytes (biginteger-to-padded-bytes (:ticks level) (* pbits 8)))
+        #_(.write ^OutputStream out ^bytes (biginteger-to-padded-bytes (:lots level) (* qbits 8))))
       (catch ArithmeticException _
         (throw (ex-info "Level tick or lot is too large" this)))))
 
   (deserialize [this in]
     ; read all fixed-length fields
-    (let [{:keys [pbytes qbytes nlevels] :as this}
+    (let [{:keys [pbits qbits nlevels] :as this}
           (into this (b/decode snapshot-codec in))
 
           levels (mapv
                    (fn [_]
-                     (let [ticks (BigInteger. (.readNBytes ^InputStream in pbytes))
-                           lots (BigInteger. (.readNBytes ^InputStream in qbytes))]
-                       (->Level ticks lots)))
+                     (let [[ticks bid? lots]
+                           (b/decode (uints pbits 1 (dec qbits)) in)]
+                       (->Level ticks ((if (pos? bid?) + -) lots))))
                    (range nlevels))]
       (assoc this :levels levels))))
 
@@ -111,26 +147,29 @@
 ;; Context is created from a snapshot & is necessary to interpret diff messages
 ;; because it specifies field lengths & a base timestamp, from which we count
 ;; using a more compact number.
-(defrecord Context [timestamp pbytes qbytes tick-size lot-size])
+(defrecord Context [timestamp pbits qbits tick-size lot-size])
+
+
+(defn ticks+side+lots-codec [pbits qbits]
+  (uints
+    pbits ;; First bits are the # of ticks (price)
+    1 ;; Next, single bit is the side (1 = bid, 0 = ask)
+    (dec qbits))) ;; Finally, the last bits are # of lots (qty)
 
 
 (defrecord Diff [timestamp-offset ; uint -- microseconds since snapshot
-                 bid?             ; byte -- 0 if ask, 1 if bid
-                 ticks            ; bytes[pbytes] (biginteger)
-                 lots             ; bytes[qbytes] (biginteger)
+                 bid?             ; first bit of lots; 0 if ask, 1 if bid
+                 ticks            ; bytes[pbits/8] (biginteger)
+                 lots             ; bytes[qbits/8] (biginteger)
                  context]
   ser/DTO
   (serialize [this out]
     (b/encode :uint out timestamp-offset)
-    (b/encode :byte out (if bid? 1 0))
-    (.write ^OutputStream out ^bytes (biginteger-to-padded-bytes ticks (:pbytes context)))
-    (.write ^OutputStream out ^bytes (biginteger-to-padded-bytes lots (:qbytes context))))
+    (b/encode (:codec context) out [ticks bid? lots]))
 
   (deserialize [this in]
     (let [timestamp-offset (bigint (b/decode :uint in))
-          bid? (if (pos? (b/decode :byte in)) true false)
-          ticks (BigInteger. (.readNBytes ^InputStream in (:pbytes context)))
-          lots (BigInteger. (.readNBytes ^InputStream in (:qbytes context)))]
+          [ticks bid? lots] (b/decode (:codec context) in)]
       (assoc this
         :timestamp-offset timestamp-offset
         :bid? bid?
@@ -151,14 +190,13 @@
   (fn [dto context] (type dto)))
 
 
-(defn- max-price-bytes [^BigDecimal tick-size asks]
+(defn- max-price-bits [^BigDecimal tick-size asks]
   (let [^BigDecimal max-price (transduce (map :price) (completing max) 0 asks)]
     (try
       (-> (bigdec (/ max-price tick-size))
           (.setScale 0 RoundingMode/UNNECESSARY)
           (.toBigInteger)
-          (.toByteArray)
-          (count))
+          (.bitLength))
       (catch ArithmeticException e
         (throw
           (ex-info
@@ -166,14 +204,13 @@
             {:tick tick-size :price max-price}))))))
 
 
-(defn- max-qty-bytes [^BigDecimal lot-size levels]
+(defn- max-qty-bits [^BigDecimal lot-size levels]
   (let [^BigDecimal max-qty (transduce (map :qty) (completing max) 0 levels)]
     (try
       (-> (bigdec (/ max-qty lot-size))
           (.setScale 0 RoundingMode/UNNECESSARY)
           (.toBigInteger)
-          (.toByteArray)
-          (count))
+          (.bitLength))
       (catch ArithmeticException e
         (throw
           (ex-info
@@ -200,8 +237,10 @@
         levels (into bid-levels ask-levels)]
     (map->Snapshot
       {:timestamp (bigint timestamp)
-       :pbytes (max-price-bytes tick-size asks)
-       :qbytes (max-qty-bytes lot-size (concat asks bids))
+       ; allocate enough bits for the maximum price currently on the book
+       :pbits (max-price-bits tick-size asks)
+       ; allow for 2x the qty, plus one extra bit for the side of the order
+       :qbits (+ (max-qty-bits lot-size (concat asks bids)) 2)
        :tick tick
        :tick-scale tick-scale
        :lot lot
@@ -243,10 +282,11 @@
   (let [{:keys [tick-size lot-size]} (dto->message snapshot-dto nil)]
     (map->Context
       {:timestamp (:timestamp snapshot-dto)
-       :pbytes (:pbytes snapshot-dto)
-       :qbytes (:qbytes snapshot-dto)
+       :pbits (:pbits snapshot-dto)
+       :qbits (:qbits snapshot-dto)
        :tick-size tick-size
-       :lot-size lot-size})))
+       :lot-size lot-size
+       :codec (ticks+side+lots-codec (:pbits snapshot-dto) (:qbits snapshot-dto))})))
 
 
 (def max-ts-offset (* Integer/MAX_VALUE 2))
@@ -262,7 +302,7 @@
       (throw (NotSerializableException. "Timestamp offset overflow")))
     (map->Diff
       {:timestamp-offset ts-offset
-       :bid? bid?
+       :bid? (if bid? BigInteger/ONE BigInteger/ZERO)
        :ticks (biginteger (->ticks price tick-size))
        :lots (biginteger (->lots qty lot-size))
        :context ctx})))
@@ -274,22 +314,33 @@
   (messages/order-book-diff
     {:price (* (bigdec ticks) tick-size)
      :qty (* (bigdec lots) lot-size)
-     :bid? bid?
+     :bid? (pos? bid?)
      :timestamp (+ timestamp timestamp-offset)}))
 
 
 (defrecord MessageFrame [message-type-flag message-byte-length message-bytes]
   ser/DTO
   (serialize [this out]
-    (b/encode [:byte :uint] out [message-type-flag message-byte-length])
+    ;; The first byte is split: first 3 bits are msg type, next 5 are msg
+    ;; length. If the message length doesn't fit, write '0' for the next 5 bits
+    ;; and follow with a uint.
+    (b/encode (uints 3 5) out [(biginteger message-type-flag)
+                               (if (< message-byte-length 32)
+                                 (biginteger message-byte-length)
+                                 BigInteger/ZERO)])
+
+    (when-not (< message-byte-length 32)
+      (b/encode :uint out message-byte-length))
+
     (.write ^OutputStream out ^bytes message-bytes))
 
   (deserialize [this in]
-    (let [[tf bl] (b/decode [:byte :uint] in)]
+    (let [[tf ml] (b/decode (uints 3 5) in)
+          ml (if (zero? ml) (b/decode :uint in) ml)]
       (assoc this
         :message-type-flag tf
-        :message-byte-length bl
-        :message-bytes (.readNBytes ^InputStream in bl)))))
+        :message-byte-length ml
+        :message-bytes (.readNBytes ^InputStream in ml)))))
 
 
 (def type->flag {Snapshot 0 Diff 1})
@@ -316,7 +367,7 @@
         dto-bytes (ByteArrayOutputStream.)
         _ (ser/serialize dto dto-bytes)
         dto-bytes (.toByteArray dto-bytes)]
-    (truss/have #(<= % max-message-bytes) (count dto-bytes))
+    (truss/have #(<= 1 % max-message-bytes) (count dto-bytes))
     (assert-bijective! dto dto-bytes)
     (->MessageFrame type-flag (count dto-bytes) dto-bytes)))
 
@@ -342,15 +393,16 @@
   (invoke [this message]
     (let [ctx @context
           _ (assert (not= ctx ::closed) "Writer is open.")
-          dto (try
-                (message->dto message ctx)
-                (catch NotSerializableException _
-                  (let [snap (some-> message :snapshot-delay deref)]
-                    (assert snap (str "When a diff can't be serialized, it "
-                                      "must include a :snapshot-delay so that "
-                                      "a fresh snapshot can be written."))
-                    (message->dto snap nil))))
-          fr (frame dto)]
+          [dto fr]
+          (try
+            (let [dto (message->dto message ctx)]
+              [dto (frame dto)])
+            (catch NotSerializableException _
+              (let [snap (some-> message :snapshot-delay deref)]
+                (assert snap (str "When a diff can't be serialized, it "
+                                  "must include a :snapshot-delay so that "
+                                  "a fresh snapshot can be written."))
+                (message->dto snap nil))))]
 
       ;; Every snapshot creates a fresh context, with field lengths etc.
       (when (= (flag->type (:message-type-flag fr)) Snapshot)
@@ -384,6 +436,7 @@
           (dto->message dto ctx))))))
 
 
+
 (comment
   (require 'criterium.core)
 
@@ -410,7 +463,7 @@
   (= deserialized snap)
 
   (def ctx
-    (-> snap (message->dto nil) (context)))
+    (-> snap (message->dto nil) (>context)))
 
   (def diff
     (messages/order-book-diff
