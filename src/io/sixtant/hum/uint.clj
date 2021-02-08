@@ -142,7 +142,7 @@
           (conj bytes (.and i mask)))))))
 
 
-(defn ubytes->unit
+(defn ubytes->uint
   "Given an arbitrary-length vector of unsigned byte values, return an unsigned
   integer."
   [from-ubytes]
@@ -181,9 +181,9 @@
   ;=> 21
 
   ;; And we can read it back in
-  (ubytes->unit (uint->ubytes i))
+  (ubytes->uint (uint->ubytes i))
   ;=> 123456789101112131415161718192021222324252627282930
 
-  (= (ubytes->unit (uint->ubytes i)) i)
+  (= (ubytes->uint (uint->ubytes i)) i)
   ;=> true
   )

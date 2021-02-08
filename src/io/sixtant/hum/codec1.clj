@@ -77,7 +77,7 @@
               uint/uint->ubytes
               (rpad-zeros byte-length))))
       (fn [ubytes]
-        (-> ubytes uint/ubytes->unit (uint/unpack-ints bit-lengths))))))
+        (-> ubytes uint/ubytes->uint (uint/unpack-ints bit-lengths))))))
 
 
 ;;; DTOs -- low-level messages whose fields map 1:1 with their binary
@@ -368,7 +368,7 @@
         _ (ser/serialize dto dto-bytes)
         dto-bytes (.toByteArray dto-bytes)]
     (truss/have #(<= 1 % max-message-bytes) (count dto-bytes))
-    (assert-bijective! dto dto-bytes)
+    #_(assert-bijective! dto dto-bytes)
     (->MessageFrame type-flag (count dto-bytes) dto-bytes)))
 
 
@@ -435,6 +435,9 @@
 
           (dto->message dto ctx))))))
 
+
+(defn writer [out] (->L2Writer out (volatile! nil)))
+(defn reader [in] (->L2Reader in (volatile! nil)))
 
 
 (comment
