@@ -2,6 +2,7 @@
   (:require [io.sixtant.hum.codec1 :as codec1]
             [io.sixtant.hum.codec2 :as codec2]
             [io.sixtant.hum.codec3 :as codec3]
+            [io.sixtant.hum.codec4 :as codec4]
             [clojure.java.io :as io]
             [taoensso.tufte :as tufte])
   (:import (java.io OutputStream InputStream ByteArrayOutputStream Closeable)))
@@ -16,6 +17,9 @@
 
 (defn writer3 [^OutputStream out] (codec3/writer out))
 (defn reader3 [^InputStream in] (codec3/reader in))
+
+(defn writer4 [^OutputStream out] (codec4/writer out))
+(defn reader4 [^InputStream in] (codec4/reader in))
 
 (defn write-with [writer messages]
   (let [out (ByteArrayOutputStream.)]

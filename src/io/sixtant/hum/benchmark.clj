@@ -54,6 +54,7 @@
       result)))
 
 
+
 (defn test-bijective [test-messages serialized-bytes reader]
   (println "Deserializing" (count serialized-bytes) "bytes...")
   (let [dser (hum/read-with reader serialized-bytes)]
@@ -139,10 +140,14 @@
 
 
 (comment
+
+  (test-codecs [hum/reader4 hum/writer4 "Codec4"])
+
   (test-codecs
     [hum/reader1 hum/writer1 "Codec1"]
     [hum/reader2 hum/writer2 "Codec2"]
-    [hum/reader3 hum/writer3 "Codec3"])
+    [hum/reader3 hum/writer3 "Codec3"]
+    [hum/reader4 hum/writer4 "Codec4"])
 
   "
   =================
