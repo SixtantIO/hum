@@ -161,7 +161,7 @@
 (defn >diff-codec [snapshot-dto]
   (let [{:keys [pbits qbits]} snapshot-dto]
     {:pbits-bits (.bitLength (biginteger pbits))
-     :qbits-bits (dec (.bitLength (biginteger qbits)))}))
+     :qbits-bits (.bitLength (biginteger qbits))}))
 
 
 (defrecord Diff [bid?             ; first bit of lots; 0 if ask, 1 if bid

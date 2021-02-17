@@ -26,19 +26,19 @@
   [test-datum]
   (case (:type test-datum)
     :diff
-    (let [{:keys [asks bids ts]} test-datum]
+    (let [{:keys [asks bids timestamp]} test-datum]
       (concat
-        (map #(messages/order-book-diff (assoc % :bid? false :timestamp ts)) asks)
-        (map #(messages/order-book-diff (assoc % :bid? true :timestamp ts)) bids)))
+        (map #(messages/order-book-diff (assoc % :bid? false :timestamp timestamp)) asks)
+        (map #(messages/order-book-diff (assoc % :bid? true :timestamp timestamp)) bids)))
 
     :snapshot
-    (let [{:keys [bids asks tick-size lot-size ts]} test-datum]
+    (let [{:keys [bids asks tick-size lot-size timestamp]} test-datum]
       [(messages/order-book-snapshot
          {:tick-size tick-size
           :lot-size (messages/adjust-lot-size 1M (concat bids asks))
           :bids bids
           :asks asks
-          :timestamp ts})])))
+          :timestamp timestamp})])))
 
 
 ;; path->msgs, here as an atom so that it can be easily cleared if necessary
@@ -88,7 +88,7 @@
       (map #(count (.getBytes ^String %))) + 0 (line-seq r))))
 
 
-(defn- run-tests [codec-name reader writer msgs-resource]
+(defn- run-tests [codec-name reader writer msgs-name msgs-resource]
   (let [test-messages (get-msgs msgs-resource)
         _ (println "Serializing" (count test-messages) "book messages...")
         serialized (hum/write-with writer test-messages)
@@ -98,7 +98,8 @@
         diff-bytes (->> (hum/write-with writer (take 2 test-messages))
                         (drop (count snapshot-bytes))
                         (byte-array))
-        result (fn [desc val] {"" desc, codec-name val})
+        header (format "%s (%s)" codec-name msgs-name)
+        result (fn [desc val] {"" desc, header val})
 
         size-on-disk (.length (io/file msgs-resource))
         ascii-size (count-ascii-bytes msgs-resource)]
@@ -126,12 +127,14 @@
     (println divider)))
 
 
-(defn test-codec [codec-name reader writer msgs-name msgs-resource]
+(defn test-codec [codec-name rdr wtr msgs-name msgs-resource]
   (print-title (format "TESTING CODEC '%s' WITH %s" codec-name msgs-name))
 
   (let [[r pstats] (tufte/profiled {}
-                     (run-tests codec-name reader writer msgs-resource))
-        result (fn [desc val] {"" desc, codec-name val})]
+                     (run-tests codec-name rdr wtr msgs-name msgs-resource))
+
+        header (format "%s (%s)" codec-name msgs-name)
+        result (fn [desc val] {"" desc, header val})]
     (println "\nTufte performance data:")
     (println (tufte/format-pstats pstats))
     (into
@@ -142,7 +145,7 @@
       r)))
 
 
-(defn test-codecs-with-messages
+#_(defn test-codecs-with-messages
   [codecs msgs-name msgs-resource]
   (->> codecs
        (mapv
@@ -151,15 +154,28 @@
        (apply map merge)))
 
 
+(defn test-codec-with-msgs [names+msgs codec-name reader writer]
+  (let [results
+        (mapv
+          (fn [[msgs-name msgs-resource]]
+            (test-codec codec-name reader writer msgs-name msgs-resource))
+          names+msgs)]
+    (apply map merge results)))
+
+
 (defn test-codecs [{:keys [codecs msgs]}]
-  (->> msgs
-       (mapv
-         (fn [[label rsource]]
-           [label (test-codecs-with-messages codecs label rsource)]))
-       (run!
-         (fn [[label results]]
-           (print-title (format "BENCHMARK RESULTS (%s)" label))
-           (pprint/print-table results)))))
+  (let [print-divider (delay (println "* * * * * * * * * * * * * * * * * *"))]
+    (->> codecs
+         (mapv
+           (fn [[codec-name reader writer]]
+             [codec-name
+              (test-codec-with-msgs msgs codec-name reader writer)]))
+         (run!
+           (fn [[label results]]
+             @print-divider
+             (println "")
+             (print-title (format "BENCHMARK RESULTS (%s)" label))
+             (pprint/print-table results))))))
 
 
 (comment
@@ -169,7 +185,15 @@
               ["Codec2" hum/reader2 hum/writer2]
               ["Codec3" hum/reader3 hum/writer3]
               ["Codec4" hum/reader4 hum/writer4]]
-     :msgs   [["BitMEX XBTUSD" (io/resource "bitmex-btc-usd.edn.gz")]]})
+     :msgs   [["BitMEX XBTUSD" (io/resource "bitmex-btc-usd.edn.gz")]
+              ["Bitso BTCMXN" (io/resource "bitso-btc-mxn.edn.gz")]
+              ["Bitso ETHMXN" (io/resource "bitso-eth-mxn.edn.gz")]
+              ["Bitso BTCARS" (io/resource "bitso-btc-ars.edn.gz")]
+              ["FTX BTCUSD" (io/resource "ftx-btc-usd.edn.gz")]
+              ["FTX ETHUSD" (io/resource "ftx-eth-usd.edn.gz")]]})
+
+  (reset! cached-msgs {})
+
 
   "
   =================
@@ -188,3 +212,30 @@
   | GBs / Book / Year |                      43.51 |                      39.08 |                      36.53
   "
   )
+
+
+(comment
+  "To trim test resources to one hour intervals"
+
+  (defn first-n-milliseconds [rdr ms-interval]
+    (let [first-line (read-string (.readLine rdr))
+          cutoff (+ (:timestamp first-line) ms-interval)]
+      (cons
+        first-line
+        (sequence
+          (comp
+            (map read-string)
+            (take-while #(<= (:timestamp %) cutoff)))
+          (line-seq rdr)))))
+
+  ;; Trim a bunch of files to only use one hour of test data
+  (doseq [f ["bitmex-btc-usd"
+             "bitso-btc-ars" "bitso-btc-mxn" "bitso-eth-mxn"
+             "ftx-btc-usd" "ftx-eth-usd"]]
+    (with-open [r (io/reader (str "resources/" f ".edn"))
+                w (io/writer (str "resources/trimmed/" f ".edn"))]
+      (binding [*out* w]
+        (run! prn (first-n-milliseconds r (enc/ms :hours 1))))))
+
+  )
+
