@@ -5,21 +5,16 @@
             [io.sixtant.hum :as hum]
             [taoensso.tufte :as tufte]
             [clojure.pprint :as pprint]
-            [taoensso.encore :as enc]
-            [org.clojars.smee.binary.core :as b]
-            [io.sixtant.hum.uint :as uint])
+            [taoensso.encore :as enc])
   (:import (java.util.zip GZIPInputStream)
-           (java.io EOFException ByteArrayInputStream)))
+           (java.net URL)))
 
 
 (set! *warn-on-reflection* true)
 
 
-(def test-data (io/resource "bitmex-btc-usd.edn.gz"))
-
-
-(defn load-test-data [xf]
-  (with-open [r (-> test-data
+(defn load-test-data [xf gzipped-resource]
+  (with-open [r (-> gzipped-resource
                     (io/input-stream)
                     (GZIPInputStream.)
                     (io/reader))]
@@ -46,13 +41,22 @@
           :timestamp ts})])))
 
 
-(defonce test-messages
-  (do
-    (println "Loading L2 data from" (str test-data) "...")
-    (let [result (load-test-data (mapcat ->messages))]
-      (println "Loaded.")
-      result)))
+;; path->msgs, here as an atom so that it can be easily cleared if necessary
+;; (e.g. for custom tests with many resources, which would otherwise be a memory
+;; leak)
+(defonce cached-msgs (atom {}))
 
+
+(defn get-msgs [gzipped-resource]
+  (let [path (.getFile ^URL gzipped-resource)]
+    (if-let [msgs (get @cached-msgs path)]
+      msgs
+      (do
+        (println "Loading L2 data from" (str gzipped-resource) "...")
+        (let [result (load-test-data (mapcat ->messages) gzipped-resource)]
+          (swap! cached-msgs assoc path result)
+          (println "Loaded.")
+          result)))))
 
 
 (defn test-bijective [test-messages serialized-bytes reader]
@@ -75,9 +79,19 @@
             {:examples (into [] (comp (filter some?) (take 5)) mismatches)}))))))
 
 
-(defn- run-tests [reader writer test-messages codec-name]
-  (println "Serializing" (count test-messages) "book messages...")
-  (let [serialized (hum/write-with writer test-messages)
+(defn count-ascii-bytes [gzipped-resource]
+  (with-open [r (-> gzipped-resource
+                    (io/input-stream)
+                    (GZIPInputStream.)
+                    (io/reader))]
+    (transduce
+      (map #(count (.getBytes ^String %))) + 0 (line-seq r))))
+
+
+(defn- run-tests [codec-name reader writer msgs-resource]
+  (let [test-messages (get-msgs msgs-resource)
+        _ (println "Serializing" (count test-messages) "book messages...")
+        serialized (hum/write-with writer test-messages)
         _ (test-bijective test-messages serialized reader)
 
         snapshot-bytes (hum/write-with writer (take 1 test-messages))
@@ -86,13 +100,8 @@
                         (byte-array))
         result (fn [desc val] {"" desc, codec-name val})
 
-        size-on-disk (.length (io/file test-data))
-        ascii-size (with-open [r (-> test-data
-                                     (io/input-stream)
-                                     (GZIPInputStream.)
-                                     (io/reader))]
-                     (transduce
-                       (map #(count (.getBytes ^String %))) + 0 (line-seq r)))]
+        size-on-disk (.length (io/file msgs-resource))
+        ascii-size (count-ascii-bytes msgs-resource)]
 
     [(result "Snapshot Bytes" (count snapshot-bytes))
      (result "Diff Bytes" (count diff-bytes))
@@ -110,14 +119,18 @@
                                      (enc/round2)))]))
 
 
-(defn test-codec [reader writer codec-name]
-  (let [s (str "TESTING CODEC " codec-name)
-        s' (apply str (repeat (count s) "="))]
-    (println s')
+(defn print-title [s]
+  (let [divider (apply str (repeat (count s) "="))]
+    (println divider)
     (println s)
-    (println s'))
+    (println divider)))
 
-  (let [[r pstats] (tufte/profiled {} (run-tests reader writer test-messages codec-name))
+
+(defn test-codec [codec-name reader writer msgs-name msgs-resource]
+  (print-title (format "TESTING CODEC '%s' WITH %s" codec-name msgs-name))
+
+  (let [[r pstats] (tufte/profiled {}
+                     (run-tests codec-name reader writer msgs-resource))
         result (fn [desc val] {"" desc, codec-name val})]
     (println "\nTufte performance data:")
     (println (tufte/format-pstats pstats))
@@ -129,25 +142,34 @@
       r)))
 
 
-(defn test-codecs [& reader+writer+names]
-  (let [tables
-        (vec (for [[reader writer codec-name] reader+writer+names]
-               (test-codec reader writer codec-name)))]
-    (println "=================")
-    (println "BENCHMARK RESULTS")
-    (println "=================")
-    (pprint/print-table (apply map merge tables))))
+(defn test-codecs-with-messages
+  [codecs msgs-name msgs-resource]
+  (->> codecs
+       (mapv
+         (fn [[codec-name reader writer]]
+           (test-codec codec-name reader writer msgs-name msgs-resource)))
+       (apply map merge)))
+
+
+(defn test-codecs [{:keys [codecs msgs]}]
+  (->> msgs
+       (mapv
+         (fn [[label rsource]]
+           [label (test-codecs-with-messages codecs label rsource)]))
+       (run!
+         (fn [[label results]]
+           (print-title (format "BENCHMARK RESULTS (%s)" label))
+           (pprint/print-table results)))))
 
 
 (comment
 
-  (test-codecs [hum/reader4 hum/writer4 "Codec4"])
-
   (test-codecs
-    [hum/reader1 hum/writer1 "Codec1"]
-    [hum/reader2 hum/writer2 "Codec2"]
-    [hum/reader3 hum/writer3 "Codec3"]
-    [hum/reader4 hum/writer4 "Codec4"])
+    {:codecs [["Codec1" hum/reader1 hum/writer1]
+              ["Codec2" hum/reader2 hum/writer2]
+              ["Codec3" hum/reader3 hum/writer3]
+              ["Codec4" hum/reader4 hum/writer4]]
+     :msgs   [["BitMEX XBTUSD" (io/resource "bitmex-btc-usd.edn.gz")]]})
 
   "
   =================
