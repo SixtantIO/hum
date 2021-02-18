@@ -2,8 +2,8 @@
   "A full order book snapshot message.
 
   Order books have a minimum price increment (tick) and minimum quantity
-  increment (lot), so and this encoding of snapshots uses integer multiples of
-  ticks and lots instead of decimal prices and quantities (as does the book diff
+  increment (lot), so this encoding of snapshots uses integer multiples of ticks
+  and lots instead of decimal prices and quantities (as does the book diff
   encoding). Therefore, in addition to ask and bid levels, the snapshot contains
   the tick and lot sizes.
 

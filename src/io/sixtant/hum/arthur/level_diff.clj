@@ -8,13 +8,14 @@
   to the serialization context map, and have field lengths designated by the
   :pbits/:qbits attributes of the serialization context map.
 
-  - A level diff
+  A level diff:
 
       +-------+-------+
       | Ticks |  Lots |
       | pbits | qbits |
       +-------+-------+
-  - A level removal
+
+  A level removal:
 
       +-------+
       | Ticks |
