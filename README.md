@@ -284,12 +284,105 @@ type, size, and timestamp.
 ### Message Frame
 
 <clojure-docs io.sixtant.hum.arthur.message-frame>
+The message frame inside of which all messages nest.
+
+The frame defines a message type number, a timestamp offset, and the message
+length in bytes.
+
+Each file produced by this codec starts with a 'timestamp' message, and each
+frame's timestamp offset is in reference to the timestamp contained in the
+most recently seen 'timestamp' message. This way, the message frame uses only
+2 bytes for the timestamp offset instead of 8 for a full timestamp.
+
+The message frame always begins with a 3-bit unsigned integer representing the
+message type. The next 5 bits are either an unsigned integer representing the
+message length for a 'compact' frame, or are set to zero in an 'extended'
+frame:
+
+- A compact message frame uses a single byte to represent both the message
+  type and the message byte length:
+
+        +--------+--------+---------+--------------+
+        |  Type  | Length |    TS   |     Msg      |
+        | 3 bits | 5 bits | 2 bytes | Length bytes |
+        +--------+--------+---------+--------------+
+
+- An extended message frame uses an additional 4 bytes to represent the
+  message byte length (e.g. for book snapshots, where the message might be
+  very large):
+
+        +--------+-----------+---------+---------+--------------+
+        |  Type  | 0-Padding |  Length |    TS   |     Msg      |
+        | 3 bits |   5 bits  | 4 bytes | 2 bytes | Length bytes |
+        +--------+-----------+---------+---------+--------------+
+
 </clojure-docs>
 
 ### Book Snapshot
 <clojure-docs io.sixtant.hum.arthur.book-snapshot>
+A full order book snapshot message.
+
+Order books have a minimum price increment (tick) and minimum quantity
+increment (lot), so this encoding of snapshots uses integer multiples of ticks
+and lots instead of decimal prices and quantities (as does the book diff
+encoding). Therefore, in addition to ask and bid levels, the snapshot contains
+the tick and lot sizes.
+
+Tick and lot sizes are each represented with one byte for the value and
+another for the scale. E.g. a tick size of 0.25 is represented as [25 2].
+
+
+    +--------------+-----------+--------+------------+--------+-----------+-------------+--------------------+
+    |  Price Bits  | Qty Bits  |  Tick  | Tick Scale |  Lot   | Lot Scale | # of Levels |        Levels      |
+    |    1 byte    |  1 byte   | 1 byte |    1 byte  | 1 byte |   1 byte  |   2 bytes   |  (Variable Length) |
+    +--------------+-----------+--------+------------+--------+-----------+-------------+--------------------+
+
+The snapshot additionally contains information about the field sizes for tick
+and lot sizes. This allows the encoding to be relatively aggressive about
+shrinking the field sizes, e.g. if the price (number of ticks) can be
+represented with 13 bits, and the quantity (number of lots) can be represented
+with 21 bits, together the price and quantity can be represented with just 4
+bytes. If an overflow occurs, a new snapshot with updated field sizes is
+simply written before continuing.
+
+Finally, after the four tick and lot fields, two bytes specify the number
+of book levels which follow. Each book level contains the integer number of
+ticks representing the price, a single bit representing book side (1 for bid,
+0 for ask), and an integer number of lots representing the quantity.
+
+    +------------+-------+----------+
+    |    Ticks   |  Side |   Lots   |
+    | Price Bits | 1 bit | Qty Bits |
+    +------------+-------+----------+
+
 </clojure-docs>
 
 ### Level Diff
 <clojure-docs io.sixtant.hum.arthur.level-diff>
+A change to an order book level.
+
+A level diff is either a [price qty] tuple to mean that the `price` level
+now has the new `qty`, or simply a `price` field to indicate a removal.
+
+Both numbers are represented as an integer number of ticks or lots according
+to the serialization context map, and have field lengths designated by the
+:pbits/:qbits attributes of the serialization context map.
+
+A level diff:
+
+    +-------+-------+
+    | Ticks |  Lots |
+    | pbits | qbits |
+    +-------+-------+
+
+A level removal:
+
+    +-------+
+    | Ticks |
+    | pbits |
+    +-------+
+
+The type of message (ask/bid and diff/removal) is interpreted from the
+message type flag in the surrounding message frame.
+
 </clojure-docs>

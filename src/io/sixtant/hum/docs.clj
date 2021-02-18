@@ -92,6 +92,7 @@
                            (rest ns-doc-lines))]
     ;; Keep the open and close tokens surrounding the docs
     (-> (into [clojure-docs-token] ns-doc-lines)
+        (conj "")
         (conj "</clojure-docs>"))))
 
 
@@ -99,8 +100,8 @@
   (str
     (->> readme-lines
          (replace-between (comp some? doc-tag?) include-namespace-docs)
-         (string/join "\n")
-         "\n")))
+         (string/join "\n"))
+    "\n"))
 
 
 (defn replace-clojure-docs! [path]
@@ -112,4 +113,7 @@
 
 ;; Overwrite the current README with a new one, whose <clojure-doc /> tags are
 ;; populated.
-(defn -main [] (replace-clojure-docs! "README.md"))
+(defn -main []
+  (println "Generating documentation for README.md...")
+  (replace-clojure-docs! "README.md")
+  (println "Done."))
