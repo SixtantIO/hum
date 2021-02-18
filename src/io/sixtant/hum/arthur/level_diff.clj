@@ -1,4 +1,4 @@
-(ns io.sixtant.hum.codec.level-diff
+(ns io.sixtant.hum.arthur.level-diff
   "A change to an order book level.
 
   A level diff is either a [price qty] tuple to mean that the `price` level
@@ -23,11 +23,10 @@
 
   The type of message (ask/bid and diff/removal) is interpreted from the
   message type flag in the surrounding message frame."
-  (:require [io.sixtant.hum.codec.utils :as u]
+  (:require [io.sixtant.hum.utils :as u]
             [org.clojars.smee.binary.core :as b]
-            [io.sixtant.hum.codec.message-frame :as frame]
             [io.sixtant.hum.messages :as messages])
-  (:import (java.io OutputStream InputStream ByteArrayOutputStream NotSerializableException)))
+  (:import (java.io OutputStream InputStream NotSerializableException)))
 
 
 (set! *warn-on-reflection* true)
@@ -85,28 +84,3 @@
       {:price (* (bigdec ticks) tick-size)
        :qty BigDecimal/ZERO
        :bid? bid?})))
-
-
-(defn frames
-  "Return a series of message frames (either diffs or removals) for the
-  `levels`."
-  [bid? levels context ts-offset]
-  (mapv
-    (fn [level]
-      (let [b (ByteArrayOutputStream.)
-            rem? (zero? (:qty level))]
-
-        (if rem?
-          (write-removal (:price level) context b)
-          (write-diff level context b))
-
-        (frame/frame
-          (if rem?
-            (if bid? frame/BID-REMOVAL frame/ASK-REMOVAL)
-            (if bid? frame/BID-DIFF frame/ASK-DIFF))
-          (.toByteArray b)
-          ts-offset)))
-    levels))
-
-(defn read-frames []
-  )

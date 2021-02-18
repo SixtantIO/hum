@@ -1,4 +1,4 @@
-(ns io.sixtant.hum.codec.message-frame
+(ns io.sixtant.hum.arthur.message-frame
   "The message frame inside of which all messages nest.
 
   The frame defines a message type number, a timestamp offset, and the message
@@ -30,7 +30,7 @@
           |  Type  | 0-Padding |  Length |    TS   |     Msg      |
           | 3 bits |   5 bits  | 4 bytes | 2 bytes | Length bytes |
           +--------+-----------+---------+---------+--------------+"
-  (:require [io.sixtant.hum.codec.utils :as u]
+  (:require [io.sixtant.hum.utils :as u]
             [org.clojars.smee.binary.core :as b]
             [taoensso.truss :as truss])
   (:import (java.io OutputStream InputStream EOFException ByteArrayOutputStream ByteArrayInputStream)))

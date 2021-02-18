@@ -1,4 +1,4 @@
-(ns io.sixtant.hum.codec.utils
+(ns io.sixtant.hum.utils
   (:require [org.clojars.smee.binary.core :as b]
             [io.sixtant.hum.uint :as uint])
   (:import (java.math RoundingMode)))

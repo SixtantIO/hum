@@ -1,9 +1,8 @@
-(ns io.sixtant.hum.codec.serialize
+(ns io.sixtant.hum.arthur.serialize
   "Functions to convert between messages and writable message frames."
-  (:require [io.sixtant.hum.codec.book-snapshot :as snap]
-            [io.sixtant.hum.codec.message-frame :as frame]
-            [taoensso.encore :as enc]
-            [io.sixtant.hum.codec.level-diff :as diff])
+  (:require [io.sixtant.hum.arthur.book-snapshot :as snap]
+            [io.sixtant.hum.arthur.message-frame :as frame]
+            [io.sixtant.hum.arthur.level-diff :as diff])
   (:import (io.sixtant.hum.messages OrderBookSnapshot OrderBookDiff)
            (java.io ByteArrayOutputStream ByteArrayInputStream NotSerializableException)))
 

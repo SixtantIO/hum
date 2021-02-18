@@ -1,5 +1,5 @@
 (ns io.sixtant.hum.messages
-  "High-level messages to serialize / read.")
+  "High-level messages which can be processed by codecs.")
 
 
 (set! *warn-on-reflection* true)

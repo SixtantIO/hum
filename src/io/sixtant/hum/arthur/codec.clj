@@ -1,6 +1,7 @@
-(ns io.sixtant.hum.codec
-  (:require [io.sixtant.hum.codec.message-frame :as frame]
-            [io.sixtant.hum.codec.serialize :as ser])
+(ns io.sixtant.hum.arthur.codec
+  "Expose a reader and writer for messages."
+  (:require [io.sixtant.hum.arthur.message-frame :as frame]
+            [io.sixtant.hum.arthur.serialize :as ser])
   (:import (java.io OutputStream Closeable InputStream)
            (clojure.lang IFn)))
 
@@ -49,8 +50,3 @@
 
 (defn writer [out] (->L2Writer out (volatile! nil)))
 (defn reader [in] (->L2Reader in (volatile! nil)))
-
-
-(comment
-
-  )

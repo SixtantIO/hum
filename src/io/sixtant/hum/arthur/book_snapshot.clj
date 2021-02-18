@@ -1,4 +1,4 @@
-(ns io.sixtant.hum.codec.book-snapshot
+(ns io.sixtant.hum.arthur.book-snapshot
   "A full order book snapshot message.
 
   Order books have a minimum price increment (tick) and minimum quantity
@@ -34,7 +34,7 @@
       | Price Bits | 1 bit | Qty Bits |
       +------------+-------+----------+"
   (:require [org.clojars.smee.binary.core :as b]
-            [io.sixtant.hum.codec.utils :as u]
+            [io.sixtant.hum.utils :as u]
             [io.sixtant.hum.messages :as messages])
   (:import (java.io OutputStream InputStream)))
 

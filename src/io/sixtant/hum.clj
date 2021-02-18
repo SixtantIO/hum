@@ -1,37 +1,43 @@
 (ns io.sixtant.hum
-  (:require [io.sixtant.hum.codec :as codec]
-            [io.sixtant.hum.codec1 :as codec1]
-            [io.sixtant.hum.codec2 :as codec2]
-            [io.sixtant.hum.codec3 :as codec3]
-            [io.sixtant.hum.codec4 :as codec4]
-            [clojure.java.io :as io]
+  "An experimental library for efficient binary serialization of L2 book data."
+  (:require [clojure.java.io :as io]
+            [io.sixtant.hum.arthur.codec :as arthur]
             [taoensso.tufte :as tufte])
   (:import (java.io OutputStream InputStream ByteArrayOutputStream Closeable)))
 
+
 (set! *warn-on-reflection* true)
 
-(defn writer [^OutputStream out] (codec/writer out))
-(defn reader [^InputStream in] (codec/reader in))
 
-(defn writer1 [^OutputStream out] (codec1/writer out))
-(defn reader1 [^InputStream in] (codec1/reader in))
+(defn writer
+  "A writer for the ARTHUR codec that serializes messages to the OutputStream."
+  [^OutputStream out]
+  (arthur/writer out))
 
-(defn writer2 [^OutputStream out] (codec2/writer out))
-(defn reader2 [^InputStream in] (codec2/reader in))
 
-(defn writer3 [^OutputStream out] (codec3/writer out))
-(defn reader3 [^InputStream in] (codec3/reader in))
+(defn reader
+  "A reader for the ARTHUR codec that reads message from the InputStream."
+  [^InputStream in] (arthur/reader in))
 
-(defn writer4 [^OutputStream out] (codec4/writer out))
-(defn reader4 [^InputStream in] (codec4/reader in))
 
-(defn write-with [writer messages]
+(defn write-with
+  "Write `messages` with the given `writer` and return a byte array."
+  [writer messages]
   (let [out (ByteArrayOutputStream.)]
     (with-open [^Closeable w (writer out)]
-      (run! (fn [m] (tufte/p :write (w m))) messages)
+      ;; Call the writer as a function to write a message. Wrap with tufte
+      ;; for profiling.
+      (let [write-message (fn [m] (tufte/p :write (w m)))]
+        (run! write-message messages))
       (.toByteArray out))))
 
-(defn read-with [reader bytes]
+
+(defn read-with
+  "Eagerly read all messages from the given `bytes` using `reader`."
+  [reader bytes]
   (let [in (io/input-stream bytes)]
     (with-open [^Closeable r (reader in)]
-      (into [] (take-while some?) (repeatedly (fn [] (tufte/p :read (r))))))))
+      ;; Similar to writing, call the reader as a function to read the next
+      ;; message (or nil at EOF). Wrap with tufte for profiling.
+      (let [try-read (fn [] (tufte/p :read (r)))]
+        (into [] (take-while some?) (repeatedly try-read))))))
