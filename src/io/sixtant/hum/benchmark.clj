@@ -138,20 +138,11 @@
     (println "\nTufte performance data:")
     (println (tufte/format-pstats pstats))
     (into
-      [(result "Mean Read μs"
-               (-> @pstats :stats :read :mean (/ 1000.0) enc/round2))
-       (result "Mean Write μs"
-               (-> @pstats :stats :write :mean (/ 1000.0) enc/round2))]
+      [(result "Median Read μs"
+               (-> @pstats :stats :read :p50 (/ 1000.0) enc/round2))
+       (result "Median Write μs"
+               (-> @pstats :stats :write :p50 (/ 1000.0) enc/round2))]
       r)))
-
-
-#_(defn test-codecs-with-messages
-  [codecs msgs-name msgs-resource]
-  (->> codecs
-       (mapv
-         (fn [[codec-name reader writer]]
-           (test-codec codec-name reader writer msgs-name msgs-resource)))
-       (apply map merge)))
 
 
 (defn test-codec-with-msgs [names+msgs codec-name reader writer]
@@ -179,12 +170,32 @@
 
 
 (comment
+  ;; Codec 1 encodes full unsigned long timestamps in book snapshots, and diffs
+  ;; get unisgned int timestamp offsets (good for about an hour). Squishes
+  ;; price and quantity bits together into the smallest possible byte
+  ;; representation.
+
+  ;; Codec 2 improves on Codec 1 by putting timestamp offsets in the message
+  ;; frame and making them two bytes wide instead of four, meaning that a
+  ;; special timestamp message has to be written approximately once per minute.
+
+  ;; Codec 3 is really gung-ho about bit manipulation, and prepends two fields
+  ;; to each diff message specifying the number of bits used by the price / qty
+  ;; respectively in that particular message. The idea is that the message size
+  ;; changes a lot (often the quantity is just 0), so the messages should prefer
+  ;; variable fields to fields which accommodate the max.
+
+  ;; Codec 0 realizes that most of the gains from codec 3 come from the '0'
+  ;; quantity fields for level removals, and directly represents a separate,
+  ;; much smaller message type for those messages. Because manipulation at the
+  ;; bit level is restricted just to unpacking the price and quantity fields,
+  ;; it is much faster
 
   (test-codecs
     {:codecs [["Codec1" hum/reader1 hum/writer1]
               ["Codec2" hum/reader2 hum/writer2]
               ["Codec3" hum/reader3 hum/writer3]
-              ["Codec4" hum/reader4 hum/writer4]]
+              ["Codec0" hum/reader hum/writer]]
      :msgs   [["BitMEX XBTUSD" (io/resource "bitmex-btc-usd.edn.gz")]
               ["Bitso BTCMXN" (io/resource "bitso-btc-mxn.edn.gz")]
               ["Bitso ETHMXN" (io/resource "bitso-eth-mxn.edn.gz")]
@@ -194,23 +205,67 @@
 
   (reset! cached-msgs {})
 
+"
+  ==========================
+  BENCHMARK RESULTS (Codec1)
+  ==========================
 
-  "
-  =================
-  BENCHMARK RESULTS
-  =================
+  |                   |     Codec1 (BitMEX XBTUSD) |      Codec1 (Bitso BTCMXN) |     Codec1 (Bitso ETHMXN) |     Codec1 (Bitso BTCARS) |        Codec1 (FTX BTCUSD) |        Codec1 (FTX ETHUSD) |
+  |-------------------+----------------------------+----------------------------+---------------------------+---------------------------+----------------------------+----------------------------|
+  |    Median Read μs |                       6.21 |                       6.14 |                      5.99 |                      6.05 |                       5.72 |                       5.71 |
+  |   Median Write μs |                        6.4 |                       5.86 |                      5.73 |                      5.92 |                       5.08 |                       5.39 |
+  |    Snapshot Bytes |                      75309 |                      43527 |                     25757 |                      7093 |                       1021 |                       1021 |
+  |        Diff Bytes |                         13 |                         14 |                        13 |                        13 |                         10 |                         10 |
+  |   Serialized Size |                    6860126 |                    2057329 |                   1032360 |                    881031 |                    2941311 |                    1864541 |
+  |    ASCII EDN Size | 50838004 (codec is 0.135x) | 13426947 (codec is 0.153x) | 7139351 (codec is 0.145x) | 6371725 (codec is 0.138x) | 15660696 (codec is 0.188x) | 10525217 (codec is 0.177x) |
+  |  Gzipped EDN Size |  4936548 (codec is 1.390x) |  1362716 (codec is 1.510x) |  741442 (codec is 1.392x) |  580405 (codec is 1.518x) |  1436078 (codec is 2.048x) |   999134 (codec is 1.866x) |
+  | GBs / Book / Year |                      60.09 |                      18.02 |                      9.04 |                      7.72 |                      25.77 |                      16.33 |
 
-  |                   |                     Codec1 |                     Codec2 |                     Codec3 |
-  |-------------------+----------------------------+----------------------------+----------------------------|
-  |      Mean Read μs |                       6.44 |                       7.77 |                       9.18 |
-  |     Mean Write μs |                       6.69 |                       6.46 |                       7.42 |
-  |    Snapshot Bytes |                      64988 |                      64993 |                      64993 |
-  |        Diff Bytes |                         12 |                         10 |                         10 |
-  |   Serialized Size |                    4966388 |                    4460716 |                    4169562 |
-  |    ASCII EDN Size | 32066369 (codec is 0.155x) | 32066369 (codec is 0.139x) | 32066369 (codec is 0.130x) |
-  |  Gzipped EDN Size |  3813523 (codec is 1.302x) |  3813523 (codec is 1.170x) |  3813523 (codec is 1.093x) |
-  | GBs / Book / Year |                      43.51 |                      39.08 |                      36.53
-  "
+  ==========================
+  BENCHMARK RESULTS (Codec2)
+  ==========================
+
+  |                   |     Codec2 (BitMEX XBTUSD) |      Codec2 (Bitso BTCMXN) |     Codec2 (Bitso ETHMXN) |     Codec2 (Bitso BTCARS) |        Codec2 (FTX BTCUSD) |        Codec2 (FTX ETHUSD) |
+  |-------------------+----------------------------+----------------------------+---------------------------+---------------------------+----------------------------+----------------------------|
+  |    Median Read μs |                       7.29 |                       7.49 |                      7.32 |                      7.28 |                        7.0 |                        7.0 |
+  |   Median Write μs |                       6.41 |                       6.59 |                       6.5 |                      6.33 |                       5.52 |                       5.55 |
+  |    Snapshot Bytes |                      75314 |                      43532 |                     25762 |                      7098 |                       1026 |                       1026 |
+  |        Diff Bytes |                         11 |                         12 |                        11 |                        11 |                          8 |                          8 |
+  |   Serialized Size |                    5816907 |                    1770242 |                    878097 |                    747178 |                    2353852 |                    1492436 |
+  |    ASCII EDN Size | 50838004 (codec is 0.114x) | 13426947 (codec is 0.132x) | 7139351 (codec is 0.123x) | 6371725 (codec is 0.117x) | 15660696 (codec is 0.150x) | 10525217 (codec is 0.142x) |
+  |  Gzipped EDN Size |  4936548 (codec is 1.178x) |  1362716 (codec is 1.299x) |  741442 (codec is 1.184x) |  580405 (codec is 1.287x) |  1436078 (codec is 1.639x) |   999134 (codec is 1.494x) |
+  | GBs / Book / Year |                      50.96 |                      15.51 |                      7.69 |                      6.55 |                      20.62 |                      13.07 |
+
+  ==========================
+  BENCHMARK RESULTS (Codec3)
+  ==========================
+
+  |                   |     Codec3 (BitMEX XBTUSD) |      Codec3 (Bitso BTCMXN) |     Codec3 (Bitso ETHMXN) |     Codec3 (Bitso BTCARS) |        Codec3 (FTX BTCUSD) |        Codec3 (FTX ETHUSD) |
+  |-------------------+----------------------------+----------------------------+---------------------------+---------------------------+----------------------------+----------------------------|
+  |    Median Read μs |                       7.92 |                       8.07 |                      8.01 |                      8.17 |                       7.55 |                       7.52 |
+  |   Median Write μs |                       6.44 |                       6.57 |                      6.68 |                      7.21 |                       6.34 |                       6.17 |
+  |    Snapshot Bytes |                      75314 |                      43532 |                     25762 |                      7098 |                       1026 |                       1026 |
+  |        Diff Bytes |                         10 |                          8 |                        11 |                         9 |                          7 |                          8 |
+  |   Serialized Size |                    4894311 |                    1476944 |                    794148 |                    684865 |                    2239353 |                    1415368 |
+  |    ASCII EDN Size | 50838004 (codec is 0.096x) | 13426947 (codec is 0.110x) | 7139351 (codec is 0.111x) | 6371725 (codec is 0.107x) | 15660696 (codec is 0.143x) | 10525217 (codec is 0.134x) |
+  |  Gzipped EDN Size |  4936548 (codec is 0.991x) |  1362716 (codec is 1.084x) |  741442 (codec is 1.071x) |  580405 (codec is 1.180x) |  1436078 (codec is 1.559x) |   999134 (codec is 1.417x) |
+  | GBs / Book / Year |                      42.87 |                      12.94 |                      6.96 |                       6.0 |                      19.62 |                       12.4 |
+
+  ==========================
+  BENCHMARK RESULTS (Codec0)
+  ==========================
+
+  |                   |     Codec0 (BitMEX XBTUSD) |      Codec0 (Bitso BTCMXN) |     Codec0 (Bitso ETHMXN) |     Codec0 (Bitso BTCARS) |        Codec0 (FTX BTCUSD) |        Codec0 (FTX ETHUSD) |
+  |-------------------+----------------------------+----------------------------+---------------------------+---------------------------+----------------------------+----------------------------|
+  |    Median Read μs |                       4.85 |                        5.0 |                      4.96 |                      4.91 |                       4.66 |                        4.7 |
+  |   Median Write μs |                       4.24 |                       4.83 |                      4.74 |                      4.75 |                       4.04 |                       4.04 |
+  |    Snapshot Bytes |                      75314 |                      43532 |                     25762 |                      7098 |                       1026 |                       1026 |
+  |        Diff Bytes |                         10 |                          7 |                        11 |                         7 |                          5 |                          8 |
+  |   Serialized Size |                    4953518 |                    1449792 |                    745949 |                    630158 |                    2041846 |                    1330448 |
+  |    ASCII EDN Size | 50838004 (codec is 0.097x) | 13426947 (codec is 0.108x) | 7139351 (codec is 0.104x) | 6371725 (codec is 0.099x) | 15660696 (codec is 0.130x) | 10525217 (codec is 0.126x) |
+  |  Gzipped EDN Size |  4936548 (codec is 1.003x) |  1362716 (codec is 1.064x) |  741442 (codec is 1.006x) |  580405 (codec is 1.086x) |  1436078 (codec is 1.422x) |   999134 (codec is 1.332x) |
+  | GBs / Book / Year |                      43.39 |                       12.7 |                      6.53 |                      5.52 |                      17.89 |                      11.65 |
+"
   )
 
 
@@ -238,4 +293,3 @@
         (run! prn (first-n-milliseconds r (enc/ms :hours 1))))))
 
   )
-

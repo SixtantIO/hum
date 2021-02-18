@@ -1,5 +1,6 @@
 (ns io.sixtant.hum
-  (:require [io.sixtant.hum.codec1 :as codec1]
+  (:require [io.sixtant.hum.codec :as codec]
+            [io.sixtant.hum.codec1 :as codec1]
             [io.sixtant.hum.codec2 :as codec2]
             [io.sixtant.hum.codec3 :as codec3]
             [io.sixtant.hum.codec4 :as codec4]
@@ -8,6 +9,9 @@
   (:import (java.io OutputStream InputStream ByteArrayOutputStream Closeable)))
 
 (set! *warn-on-reflection* true)
+
+(defn writer [^OutputStream out] (codec/writer out))
+(defn reader [^InputStream in] (codec/reader in))
 
 (defn writer1 [^OutputStream out] (codec1/writer out))
 (defn reader1 [^InputStream in] (codec1/reader in))

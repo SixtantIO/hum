@@ -244,8 +244,12 @@
             "Lot size incorrect."
             {:tick lot-size :qty max-qty}))))))
 
+(let [tick-size 0.25M]
+  (let [tick-scale (-> tick-size .stripTrailingZeros .scale)
+        tick (-> tick-size (.scaleByPowerOfTen tick-scale) .intValueExact)]
+    [tick tick-scale]))
 
-(defmethod message->dto SNAPSHOT
+      (defmethod message->dto SNAPSHOT
   [{:keys [^BigDecimal tick-size ^BigDecimal lot-size bids asks timestamp]}]
   (let [tick-scale (-> tick-size .stripTrailingZeros .scale)
         tick (-> tick-size (.scaleByPowerOfTen tick-scale) .intValueExact)
