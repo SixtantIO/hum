@@ -17,7 +17,8 @@
 
 (defn reader
   "A reader for the ARTHUR codec that reads message from the InputStream."
-  [^InputStream in] (arthur/reader in))
+  [^InputStream in]
+  (arthur/reader in))
 
 
 (defn write-with

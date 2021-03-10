@@ -39,7 +39,7 @@ Quick example (see [example with buffers](#example) for something more complete)
 ;=> #object["[B" 0x241fa40 "[B@241fa40"]
 
 (vec *1)
-;=> [8 0 0 0 0 1 119 -77 15 -119 114 48 0 0 18 10 5 1 1 1 0 2 12 12 106 24 -10 9 -25 24 68 46 -128 -53 64 66 15]
+;=> [8 0 0 0 0 1 120 26 -53 64 65 48 0 0 18 10 5 1 1 1 0 2 12 12 106 24 -10 9 -25 24 68 14 104 -112 -48 47 3]
 
 ;; Eagerly read all messages from an input stream or byte array
 (hum/read-with hum/reader (byte-array *1))
@@ -60,7 +60,7 @@ Quick example (see [example with buffers](#example) for something more complete)
 Storing data is a tradeoff between processing speed and storage efficiency.
 Ideally, this library will be able to:
 
-1. store order books for a cost ~ 10 GB per book per year, and
+1. store order books for a cost of ~ 10 GB per book per year, and
 2. retrieve order books and run calculations (e.g. liquidity within N basis 
    points of the midprice) fast enough to serve as a custom back end for a 
    [Grafana](https://grafana.com/) dashboard — i.e. process queries over an 
@@ -160,14 +160,15 @@ from these comparatively low level message types for writing or reading data.
   (writer diff)
   (println "Diff bytes" (vec (.toByteArray out))))
 
-; Snapshot bytes [8 0 0 0 0 1 119 -77 15 -119 114 48 0 0 18 10 5 1 1 1 0 2 12 12 106 24 -10 9 -25 24]
-; Diff bytes [68 46 -128 -53 64 66 15]
+; Snapshot bytes [8 0 0 0 0 1 120 26 -53 64 65 48 0 0 18 10 5 1 1 1 0 2 12 12 106 24 -10 9 -25 24]
+; Diff bytes [68 14 104 -112 -48 47 3]
 
 ;; Reading
 (def some-bytes
-  [8 0 0 0 0 1 119 -77 15 -119 114 48 0 0 18
-   10 5 1 1 1 0 2 12 12 106 24 -10 9 -25 24
-   68 46 -128 -53 64 66 15])
+  [8 0 0 0 0 1 120 26 -53 64
+   65 48 0 0 18 10 5 1 1 1 0
+   2 12 12 106 24 -10 9 -25
+   24 68 14 104 -112 -48 47 3])
 
 (with-open [rdr (hum/reader (ByteArrayInputStream. (byte-array some-bytes)))]
   ;; Invoke the reader to read a single message, or nil if EOF.
@@ -223,23 +224,16 @@ BENCHMARK RESULTS (ARTHUR)
 
 |                   |     ARTHUR (BitMEX XBTUSD) |      ARTHUR (Bitso BTCMXN) |     ARTHUR (Bitso ETHMXN) |     ARTHUR (Bitso BTCARS) |        ARTHUR (FTX BTCUSD) |        ARTHUR (FTX ETHUSD) |
 |-------------------+----------------------------+----------------------------+---------------------------+---------------------------+----------------------------+----------------------------|
-|    Median Read μs |                       5.49 |                        5.2 |                      5.13 |                      5.62 |                       4.51 |                       4.51 |
-|   Median Write μs |                       4.92 |                       5.44 |                      4.88 |                       4.9 |                       4.04 |                        4.0 |
+|    Median Read μs |                       4.16 |                       4.32 |                       4.3 |                      4.35 |                       4.04 |                       3.92 |
+|   Median Write μs |                       4.33 |                       4.11 |                      4.64 |                      4.38 |                       3.53 |                       3.57 |
 |    Snapshot Bytes |                      75314 |                      43532 |                     25762 |                      7098 |                       1026 |                       1026 |
-|        Diff Bytes |                         10 |                          7 |                        11 |                         7 |                          5 |                          8 |
-|   Serialized Size |                    4953518 |                    1449792 |                    745949 |                    630158 |                    2041846 |                    1330448 |
+|        Diff Bytes |                          9 |                          7 |                        10 |                         7 |                          5 |                          7 |
+|   Serialized Size |                    4372398 |                    1333105 |                    704918 |                    579875 |                    1798449 |                    1155457 |
 |       # of Events |                     521910 |                     143844 |                     77432 |                     67227 |                     294030 |                     186353 |
-|    ASCII EDN Size | 50838004 (codec is 0.097x) | 13426947 (codec is 0.108x) | 7139351 (codec is 0.104x) | 6371725 (codec is 0.099x) | 15660696 (codec is 0.130x) | 10525217 (codec is 0.126x) |
-|  Gzipped EDN Size |  4936548 (codec is 1.003x) |  1362716 (codec is 1.064x) |  741442 (codec is 1.006x) |  580405 (codec is 1.086x) |  1436078 (codec is 1.422x) |   999134 (codec is 1.332x) |
-| GBs / Book / Year |                      43.39 |                       12.7 |                      6.53 |                      5.52 |                      17.89 |                      11.65 |
+|    ASCII EDN Size | 50838004 (codec is 0.086x) | 13426947 (codec is 0.099x) | 7139351 (codec is 0.099x) | 6371725 (codec is 0.091x) | 15660696 (codec is 0.115x) | 10525217 (codec is 0.110x) |
+|  Gzipped EDN Size |  4936548 (codec is 0.886x) |  1362716 (codec is 0.978x) |  741442 (codec is 0.951x) |  580405 (codec is 0.999x) |  1436078 (codec is 1.252x) |   999134 (codec is 1.156x) |
+| GBs / Book / Year |                       38.3 |                      11.68 |                      6.18 |                      5.08 |                      15.75 |                      10.12 |
 ```
-
-> If gzipped EDN is smaller, why not just use that? This goes back to the 
-> tradeoff between size & processing speed -- gzipped EDN does not allow 
-> seeking through the file without deserailizing (that's why gzipping is so
-> efficient, the encoding relies on knowing the entire contents some message
-> before encoding it). We want to store years of order book data and rapidly
-> seek to specific locations.
 
 ## Next Steps
 
@@ -365,15 +359,17 @@ A level diff is either a [price qty] tuple to mean that the `price` level
 now has the new `qty`, or simply a `price` field to indicate a removal.
 
 Both numbers are represented as an integer number of ticks or lots according
-to the serialization context map, and have field lengths designated by the
-:pbits/:qbits attributes of the serialization context map.
+to the serialization context map. The number of ticks has a field length
+designated by the :pbits attribute of the serialization context map, and the
+number of lots is the rest of the message (the message length is specified in
+the message frame).
 
 A level diff:
 
-    +-------+-------+
-    | Ticks |  Lots |
-    | pbits | qbits |
-    +-------+-------+
+    +-----------------+-------+
+    |       Lots      | Ticks |
+    | Variable Length | pbits |
+    +-----------------+-------+
 
 A level removal:
 

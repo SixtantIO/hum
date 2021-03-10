@@ -59,21 +59,20 @@
 
 
 (deftest overflow-test
-  (doseq [attr [:price :qty]]
-    (testing (format "when %s overflows" (name attr))
+  (testing "when :price overflows"
 
-      (testing "and there is no snapshot-delay"
-        (let [diff (assoc diff-a attr big-number)]
-          (is
-            (thrown?
-              IllegalArgumentException
-              #"Diffs must include a :snapshot-delay so that.*"
-              (write-with writer [snap diff])))))
+    (testing "and there is no snapshot-delay"
+      (let [diff (assoc diff-a :price big-number)]
+        (is
+          (thrown?
+            IllegalArgumentException
+            #"Diffs must include a :snapshot-delay so that.*"
+            (write-with writer [snap diff])))))
 
-      (testing "and there is a snapshot-delay"
-        (let [diff (assoc diff-a attr big-number :snapshot-delay (delay snap))]
-          (is (= (->> [snap diff]
-                      (write-with writer)
-                      (read-with reader))
-                 [snap (assoc snap :timestamp (:timestamp diff))])
-              "a new snapshot is written instead of the invalid diff"))))))
+    (testing "and there is a snapshot-delay"
+      (let [diff (assoc diff-a :price big-number :snapshot-delay (delay snap))]
+        (is (= (->> [snap diff]
+                    (write-with writer)
+                    (read-with reader))
+               [snap (assoc snap :timestamp (:timestamp diff))])
+            "a new snapshot is written instead of the invalid diff")))))
