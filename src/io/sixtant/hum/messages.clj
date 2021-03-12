@@ -87,3 +87,16 @@
   this is the case."
   [{:keys [price qty maker-is-bid? tid timestamp snapshot-delay] :as data}]
   (map->Trade data))
+
+
+(defrecord Disconnect [timestamp])
+
+
+(defn disconnect
+  "An event indicating that the connection to the exchange is severed.
+
+  To differentiate between quiet order book periods and small time intervals
+  spent reconnecting to the exchange, in the inevitable event of a network
+  error."
+  [{:keys [timestamp]}]
+  (->Disconnect timestamp))

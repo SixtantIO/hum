@@ -50,16 +50,20 @@
      :timestamp (+ timestamp 400)}))
 
 
+(def disconnect (messages/disconnect {:timestamp (+ timestamp 500)}))
 (def rem-a (-> (assoc diff-a :qty 0M) (update :timestamp + 200)))
 (def rem-b (-> (assoc diff-b :qty 0M) (update :timestamp + 200)))
 
 
+
 (deftest serialization-test
-  (is (= (->> [snap diff-a diff-b bid-hit-trade quote-lifted-trade rem-a rem-b]
-              (write-with writer)
-              (read-with reader))
-         [snap diff-a diff-b bid-hit-trade quote-lifted-trade rem-a rem-b])
-      "Messages survive the serialize -> deserialize loop intact.")
+  (let [msgs [snap ; snapshot
+              diff-a diff-b  ; book diffs
+              bid-hit-trade quote-lifted-trade ; trades
+              rem-a rem-b  ; book level removals
+              disconnect]] ; disconnect message
+    (is (= (->> msgs (write-with writer) (read-with reader)) msgs)
+        "Messages survive the serialize -> deserialize loop intact."))
 
   (let [empty-snap (write-with writer [(assoc snap :bids [] :asks [])])]
     (println (count empty-snap) "bytes / empty snapshot"))

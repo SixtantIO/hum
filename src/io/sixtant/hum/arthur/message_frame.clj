@@ -47,6 +47,7 @@
 (def ^:const BID-DIFF    4)
 (def ^:const BID-REMOVAL 5)
 (def ^:const TRADE       6)
+(def ^:const DISCONNECT  7)
 
 
 (def ^:const message-type-bits 3)

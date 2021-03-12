@@ -3,8 +3,9 @@
   (:require [io.sixtant.hum.arthur.book-snapshot :as snap]
             [io.sixtant.hum.arthur.message-frame :as frame]
             [io.sixtant.hum.arthur.level-diff :as diff]
-            [io.sixtant.hum.arthur.trade :as trade])
-  (:import (io.sixtant.hum.messages OrderBookSnapshot OrderBookDiff Trade)
+            [io.sixtant.hum.arthur.trade :as trade]
+            [io.sixtant.hum.messages :as messages])
+  (:import (io.sixtant.hum.messages OrderBookSnapshot OrderBookDiff Trade Disconnect)
            (java.io ByteArrayOutputStream ByteArrayInputStream NotSerializableException)))
 
 
@@ -70,7 +71,12 @@
       (catch NotSerializableException _
         (let [[context snap] (write-snapshot-bc-of-overflow this context ts-offset)
               [context trade] (frame* this context ts-offset)]
-          [context snap trade])))))
+          [context snap trade]))))
+
+  Disconnect
+  (frame* [this context ts-offset]
+    ;; disconnect message body is just a single 0-byte
+    [context (frame/frame frame/DISCONNECT (byte-array [0]) ts-offset)]))
 
 
 (defn- ?timestamp-frame [context timestamp]
@@ -129,6 +135,11 @@
     [context (assoc trade :timestamp ts)]))
 
 
+(defn read-disconnect [frame context]
+  (let [ts (+ (:timestamp context) (:timestamp-offset frame))]
+    [context (messages/disconnect {:timestamp ts})]))
+
+
 (defn message
   "Deserialize a message, return `[context msg]`."
   [frame context]
@@ -139,4 +150,5 @@
     frame/ASK-REMOVAL (read-removal frame context false)
     frame/BID-DIFF    (read-diff frame context true)
     frame/BID-REMOVAL (read-removal frame context true)
-    frame/TRADE       (read-trade frame context)))
+    frame/TRADE       (read-trade frame context)
+    frame/DISCONNECT  (read-disconnect frame context)))
