@@ -2,8 +2,9 @@
   "Functions to convert between messages and writable message frames."
   (:require [io.sixtant.hum.arthur.book-snapshot :as snap]
             [io.sixtant.hum.arthur.message-frame :as frame]
-            [io.sixtant.hum.arthur.level-diff :as diff])
-  (:import (io.sixtant.hum.messages OrderBookSnapshot OrderBookDiff)
+            [io.sixtant.hum.arthur.level-diff :as diff]
+            [io.sixtant.hum.arthur.trade :as trade])
+  (:import (io.sixtant.hum.messages OrderBookSnapshot OrderBookDiff Trade)
            (java.io ByteArrayOutputStream ByteArrayInputStream NotSerializableException)))
 
 
@@ -11,7 +12,23 @@
 
 
 (defprotocol Frameable
-  (frame* [this context ts-offset] "Return [context message-frame]."))
+  (frame* [this context ts-offset] "Return [context & message-frames]."))
+
+
+(defn write-snapshot-bc-of-overflow [message-to-write context ts-offset]
+  (let [snap (some-> (:snapshot-delay message-to-write) deref)
+
+        min-price (get message-to-write :price 0M)
+        min-qty (get message-to-write :qty 0M)]
+    (when-not snap
+      (throw
+        (IllegalArgumentException.
+          (str "Messages must include a :snapshot-delay so that a fresh "
+               "snapshot can be written in case of overflow."))))
+    (frame*
+      ^Frameable (assoc snap :min-price min-price :min-qty min-qty)
+      context
+      ts-offset)))
 
 
 (extend-protocol Frameable
@@ -25,7 +42,7 @@
 
   OrderBookDiff
   (frame* [this context ts-offset]
-    (let [{:keys [price qty bid? timestamp snapshot-delay]} this]
+    (let [{:keys [price qty bid?]} this]
       (try
         (let [b (ByteArrayOutputStream.)
               removal? (zero? qty)]
@@ -42,13 +59,18 @@
              (.toByteArray b)
              ts-offset)])
         (catch NotSerializableException _
-          (let [snap (some-> snapshot-delay deref)]
-            (when-not snap
-              (throw
-                (IllegalArgumentException.
-                  (str "Diffs must include a :snapshot-delay so that a fresh "
-                       "snapshot can be written in case of overflow."))))
-            (frame* ^Frameable snap context ts-offset)))))))
+          (write-snapshot-bc-of-overflow this context ts-offset)))))
+
+  Trade
+  (frame* [this context ts-offset]
+    (try
+      (let [b (ByteArrayOutputStream.)]
+        (trade/write-trade this context b)
+        [context (frame/frame frame/TRADE (.toByteArray b) ts-offset)])
+      (catch NotSerializableException _
+        (let [[context snap] (write-snapshot-bc-of-overflow this context ts-offset)
+              [context trade] (frame* this context ts-offset)]
+          [context snap trade])))))
 
 
 (defn- ?timestamp-frame [context timestamp]
@@ -68,9 +90,10 @@
         ts-offset (- ts (:timestamp context))
 
         ;; Build message frames for writing -- timestamp frame (if any) first
-        [context frame] (frame* message context ts-offset)]
-    [context
-     (if ?ts-frame [?ts-frame frame] [frame])]))
+        ctx+frames (frame* message context ts-offset)
+        frames (subvec ctx+frames 1)
+        frames (if ?ts-frame (into [?ts-frame] frames) frames)]
+    [(first ctx+frames) frames]))
 
 
 (defn read-ts [ts-frame context]
@@ -100,6 +123,12 @@
     [context (assoc diff :timestamp ts)]))
 
 
+(defn read-trade [frame context]
+  (let [trade (trade/read-trade context (frame-bytes frame))
+        ts (+ (:timestamp context) (:timestamp-offset frame))]
+    [context (assoc trade :timestamp ts)]))
+
+
 (defn message
   "Deserialize a message, return `[context msg]`."
   [frame context]
@@ -109,4 +138,5 @@
     frame/ASK-DIFF    (read-diff frame context false)
     frame/ASK-REMOVAL (read-removal frame context false)
     frame/BID-DIFF    (read-diff frame context true)
-    frame/BID-REMOVAL (read-removal frame context true)))
+    frame/BID-REMOVAL (read-removal frame context true)
+    frame/TRADE       (read-trade frame context)))

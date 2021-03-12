@@ -192,15 +192,15 @@
 
   |                   |     ARTHUR (BitMEX XBTUSD) |      ARTHUR (Bitso BTCMXN) |     ARTHUR (Bitso ETHMXN) |     ARTHUR (Bitso BTCARS) |        ARTHUR (FTX BTCUSD) |        ARTHUR (FTX ETHUSD) |
   |-------------------+----------------------------+----------------------------+---------------------------+---------------------------+----------------------------+----------------------------|
-  |    Median Read μs |                       4.16 |                       4.32 |                       4.3 |                      4.35 |                       4.04 |                       3.92 |
-  |   Median Write μs |                       4.33 |                       4.11 |                      4.64 |                      4.38 |                       3.53 |                       3.57 |
+  |    Median Read μs |                       5.49 |                        5.2 |                      5.13 |                      5.62 |                       4.51 |                       4.51 |
+  |   Median Write μs |                       4.92 |                       5.44 |                      4.88 |                       4.9 |                       4.04 |                        4.0 |
   |    Snapshot Bytes |                      75314 |                      43532 |                     25762 |                      7098 |                       1026 |                       1026 |
-  |        Diff Bytes |                          9 |                          7 |                        10 |                         7 |                          5 |                          7 |
-  |   Serialized Size |                    4372398 |                    1333105 |                    704918 |                    579875 |                    1798449 |                    1155457 |
+  |        Diff Bytes |                         10 |                          7 |                        11 |                         7 |                          5 |                          8 |
+  |   Serialized Size |                    4953518 |                    1449792 |                    745949 |                    630158 |                    2041846 |                    1330448 |
   |       # of Events |                     521910 |                     143844 |                     77432 |                     67227 |                     294030 |                     186353 |
-  |    ASCII EDN Size | 50838004 (codec is 0.086x) | 13426947 (codec is 0.099x) | 7139351 (codec is 0.099x) | 6371725 (codec is 0.091x) | 15660696 (codec is 0.115x) | 10525217 (codec is 0.110x) |
-  |  Gzipped EDN Size |  4936548 (codec is 0.886x) |  1362716 (codec is 0.978x) |  741442 (codec is 0.951x) |  580405 (codec is 0.999x) |  1436078 (codec is 1.252x) |   999134 (codec is 1.156x) |
-  | GBs / Book / Year |                       38.3 |                      11.68 |                      6.18 |                      5.08 |                      15.75 |                      10.12 |
+  |    ASCII EDN Size | 50838004 (codec is 0.097x) | 13426947 (codec is 0.108x) | 7139351 (codec is 0.104x) | 6371725 (codec is 0.099x) | 15660696 (codec is 0.130x) | 10525217 (codec is 0.126x) |
+  |  Gzipped EDN Size |  4936548 (codec is 1.003x) |  1362716 (codec is 1.064x) |  741442 (codec is 1.006x) |  580405 (codec is 1.086x) |  1436078 (codec is 1.422x) |   999134 (codec is 1.332x) |
+  | GBs / Book / Year |                      43.39 |                       12.7 |                      6.53 |                      5.52 |                      17.89 |                      11.65 |
   "
 
   )

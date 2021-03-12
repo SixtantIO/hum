@@ -7,7 +7,7 @@ An experimental library for efficient binary serialization of L2 book data.
 This library encodes the following data:
   - Order book snapshots (L2)
   - Order book diffs (L2)
-  - Trades (TODO)
+  - Trades
   - Disconnect events, to differentiate between a few seconds spent reconnecting 
     to the exchange and a few seconds with no activity (TODO)
     
@@ -26,6 +26,7 @@ Quick example (see [example with buffers](#example) for something more complete)
      :asks      [{:price 102000.50M :qty 50.2M}]
      :timestamp (System/currentTimeMillis)}))
 
+
 ;; An order book diff -- price level at 125,000.00 now has 20.3
 (def diff
   (messages/order-book-diff
@@ -39,19 +40,20 @@ Quick example (see [example with buffers](#example) for something more complete)
 ;=> #object["[B" 0x241fa40 "[B@241fa40"]
 
 (vec *1)
-;=> [8 0 0 0 0 1 120 26 -53 64 65 48 0 0 18 10 5 1 1 1 0 2 12 12 106 24 -10 9 -25 24 68 14 104 -112 -48 47 3]
+;=> [8 0 0 0 0 1 120 40 -77 -54 55 48 0 0 18 10 5 1 1 1 0 2 12 12 106 24 -10 9 -25 24 68 0 0 -112 -48 47 3]
+
 
 ;; Eagerly read all messages from an input stream or byte array
 (hum/read-with hum/reader (byte-array *1))
 ;=> [#io.sixtant.hum.messages.OrderBookSnapshot{:bids [{:price 100000.5M, :qty 1.2M}],
 ;                                               :asks [{:price 102000.5M, :qty 50.2M}],
-;                                               :timestamp 1613616875890,
+;                                               :timestamp 1615590574647,
 ;                                               :tick-size 0.5M,
 ;                                               :lot-size 0.1M}
 ;    #io.sixtant.hum.messages.OrderBookDiff{:price 125000.0M,
 ;                                           :qty 20.3M,
 ;                                           :bid? false,
-;                                           :timestamp 1613616887794,
+;                                           :timestamp 1615590574647,
 ;                                           :snapshot-delay nil}]
 ```
 
@@ -160,23 +162,23 @@ from these comparatively low level message types for writing or reading data.
   (writer diff)
   (println "Diff bytes" (vec (.toByteArray out))))
 
-; Snapshot bytes [8 0 0 0 0 1 120 26 -53 64 65 48 0 0 18 10 5 1 1 1 0 2 12 12 106 24 -10 9 -25 24]
-; Diff bytes [68 14 104 -112 -48 47 3]
+; Snapshot bytes [8 0 0 0 0 1 120 40 -77 -54 55 48 0 0 18 10 5 1 1 1 0 2 12 12 106 24 -10 9 -25 24]
+; Diff bytes [68 0 0 -112 -48 47 3]
 
 ;; Reading
 (def some-bytes
-  [8 0 0 0 0 1 120 26 -53 64
-   65 48 0 0 18 10 5 1 1 1 0
+  [8 0 0 0 0 1 120 40 -77 -54
+   55 48 0 0 18 10 5 1 1 1 0
    2 12 12 106 24 -10 9 -25
-   24 68 14 104 -112 -48 47 3])
+   24 68 0 0 -112 -48 47 3])
 
 (with-open [rdr (hum/reader (ByteArrayInputStream. (byte-array some-bytes)))]
   ;; Invoke the reader to read a single message, or nil if EOF.
   (println "First:" (rdr))
   (println "Second:" (rdr))
   (println "Third:" (rdr)))
-; First: #io.sixtant.hum.messages.OrderBookSnapshot{:bids [{:price 100000.5M, :qty 1.2M}], :asks [{:price 102000.5M, :qty 50.2M}], :timestamp 1613616875890, :tick-size 0.5M, :lot-size 0.1M}
-; Second: #io.sixtant.hum.messages.OrderBookDiff{:price 125000.0M, :qty 20.3M, :bid? false, :timestamp 1613616887794, :snapshot-delay nil}
+; First: #io.sixtant.hum.messages.OrderBookSnapshot{:bids [{:price 100000.5M, :qty 1.2M}], :asks [{:price 102000.5M, :qty 50.2M}], :timestamp 1615590574647, :tick-size 0.5M, :lot-size 0.1M}
+; Second: #io.sixtant.hum.messages.OrderBookDiff{:price 125000.0M, :qty 20.3M, :bid? false, :timestamp 1615590574647, :snapshot-delay nil}
 ; Third: nil
 ```
 
@@ -325,6 +327,9 @@ the tick and lot sizes.
 Tick and lot sizes are each represented with one byte for the value and
 another for the scale. E.g. a tick size of 0.25 is represented as [25 2].
 
+All byte values correspond to unsigned integers, except for tick and lot
+scale, which are signed integers.
+
 
     +--------------+-----------+--------+------------+--------+-----------+-------------+--------------------+
     |  Price Bits  | Qty Bits  |  Tick  | Tick Scale |  Lot   | Lot Scale | # of Levels |        Levels      |
@@ -380,5 +385,29 @@ A level removal:
 
 The type of message (ask/bid and diff/removal) is interpreted from the
 message type flag in the surrounding message frame.
+
+</clojure-docs>
+
+### Trade
+<clojure-docs io.sixtant.hum.arthur.trade>
+A trade for some price and quantity.
+
+Both numbers are represented as an integer number of ticks or lots according
+to the serialization context map. The number of ticks and lots have field
+lengths designated by the :pbits / :qbits attributes of the serialization
+context map.
+
+The side of the trade is represented by a single bit: 1 if the maker was a
+bid, 0 if it was an ask.
+
+Since exchanges use different trade ID schemes, the trade ID is a
+variable-length series of bytes, and therefore comes last. If the trade id
+is numeric, the bit preceding the trade id is set, and the trade id is encoded
+as an unsigned long. Otherwise, it is a UTF-8 string.
+
+    +-------+-------+------------+-------------+-----------------+
+    | Ticks | Lots  | Maker Side | Numeric ID? |     Trade ID    |
+    | pbits | qbits |   1 bit    |    1 bit    | Variable Length |
+    +-------+-------+------------+-------------+-----------------+
 
 </clojure-docs>

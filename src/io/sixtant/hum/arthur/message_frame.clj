@@ -46,6 +46,7 @@
 (def ^:const ASK-REMOVAL 3)
 (def ^:const BID-DIFF    4)
 (def ^:const BID-REMOVAL 5)
+(def ^:const TRADE       6)
 
 
 (def ^:const message-type-bits 3)

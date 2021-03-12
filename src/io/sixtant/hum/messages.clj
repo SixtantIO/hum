@@ -55,7 +55,27 @@
   "An L2 order book diff, with a BigDecimal price level and new quantity (zero
   if the level has been removed).
 
-  :snapshot-delay, if included, dereferences to an order book snapshot message.
-  Include for codecs which might need to write a new snapshot at any time."
+  :snapshot-delay, if included, dereferences to an order book snapshot
+  message. See the README or book_snapshot.clj for more information about why
+  this is the case."
   [{:keys [price qty bid? timestamp snapshot-delay] :as data}]
   (map->OrderBookDiff data))
+
+
+(defrecord Trade [price qty maker-is-bid? tid timestamp snapshot-delay])
+
+
+(defn trade
+  "A trade with BigDecimal price and quantity fields. In the interest of
+  compression, the maker and taker order ids are not stored, just the
+  trade id.
+
+  The if the exchange uses a numeric trade id scheme with positive, unsigned
+  integers, pass in the trade id as a number, and it will be written with
+  higher compression. Otherwise, trade ids are written as UTF-8 strings.
+
+  :snapshot-delay, if included, dereferences to an order book snapshot
+  message. See the README or book_snapshot.clj for more information about why
+  this is the case."
+  [{:keys [price qty maker-is-bid? tid timestamp snapshot-delay] :as data}]
+  (map->Trade data))
