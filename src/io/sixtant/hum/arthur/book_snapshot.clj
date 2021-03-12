@@ -7,6 +7,12 @@
   encoding). Therefore, in addition to ask and bid levels, the snapshot contains
   the tick and lot sizes.
 
+  The very first byte of the snapshot represents whether the snapshot is
+  redundant, i.e. contains no new information. This is useful because such
+  snapshots can be used as a checksum by the reader, to check that the book
+  has been encoded and replayed correctly. In this case, the :redundant? flag
+  in the snapshot message is true, and the byte value is 1.
+
   Tick and lot sizes are each represented with one byte for the value and
   another for the scale. E.g. a tick size of 0.25 is represented as [25 2].
 
@@ -14,10 +20,10 @@
   scale, which are signed integers.
 
 
-      +--------------+-----------+--------+------------+--------+-----------+-------------+--------------------+
-      |  Price Bits  | Qty Bits  |  Tick  | Tick Scale |  Lot   | Lot Scale | # of Levels |        Levels      |
-      |    1 byte    |  1 byte   | 1 byte |    1 byte  | 1 byte |   1 byte  |   2 bytes   |  (Variable Length) |
-      +--------------+-----------+--------+------------+--------+-----------+-------------+--------------------+
+      +------------+--------------+-----------+--------+------------+--------+-----------+-------------+--------------------+
+      | Redundant? |  Price Bits  | Qty Bits  |  Tick  | Tick Scale |  Lot   | Lot Scale | # of Levels |        Levels      |
+      |   1 byte   |    1 byte    |  1 byte   | 1 byte |    1 byte  | 1 byte |   1 byte  |   2 bytes   |  (Variable Length) |
+      +------------+--------------+-----------+--------+------------+--------+-----------+-------------+--------------------+
 
   The snapshot additionally contains information about the field sizes for tick
   and lot sizes. This allows the encoding to be relatively aggressive about
@@ -47,13 +53,14 @@
 
 (def header-codec ; codec for all fields except the levels
   (b/ordered-map
-    :pbits            :ubyte
-    :qbits            :ubyte
-    :tick             :ubyte
-    :tick-scale       :byte
-    :lot              :ubyte
-    :lot-scale        :byte
-    :nlevels          :ushort))
+    :redundant? :ubyte
+    :pbits      :ubyte
+    :qbits      :ubyte
+    :tick       :ubyte
+    :tick-scale :byte
+    :lot        :ubyte
+    :lot-scale  :byte
+    :nlevels    :ushort))
 
 
 (defn- write-levels [levels side-bit context ^OutputStream out]
@@ -97,7 +104,8 @@
                   (inc (u/max-qty-bits lot-size (concat asks bids))))
 
           ;; The serialized message, without the levels
-          header {:pbits pbits
+          header {:redundant? (if (:redundant? snapshot) 1 0)
+                  :pbits pbits
                   :qbits qbits
                   :tick tick
                   :tick-scale tick-scale
@@ -121,7 +129,8 @@
   [^InputStream in]
   ; read all fixed-length fields
   (let [{:keys [pbits qbits tick tick-scale lot lot-scale nlevels] :as header}
-        (b/decode header-codec in)
+        (-> (b/decode header-codec in)
+            (update :redundant? #(if (pos? %) true false)))
 
         tick-size (u/ints-as-dec [tick tick-scale])
         lot-size (u/ints-as-dec [lot lot-scale])
@@ -134,6 +143,12 @@
                       :qty (* lots lot-size)}
                side (if (= bid? BigInteger/ONE) :bids :asks)]
            (update x side conj level)))
-       (messages/->OrderBookSnapshot [] [] nil tick-size lot-size)
+       (messages/map->OrderBookSnapshot
+         {:bids []
+          :asks []
+          :timestamp nil
+          :tick-size tick-size
+          :lot-size lot-size
+          :redundant? (:redundant? header)})
        (range nlevels))
      (assoc header :tick-size tick-size :lot-size lot-size)]))

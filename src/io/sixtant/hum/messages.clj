@@ -5,7 +5,7 @@
 (set! *warn-on-reflection* true)
 
 
-(defrecord OrderBookSnapshot [bids asks timestamp tick-size lot-size])
+(defrecord OrderBookSnapshot [bids asks timestamp tick-size lot-size redundant?])
 
 
 (defn- exact-multiple? [^BigDecimal n ^BigDecimal quantum]
@@ -43,9 +43,17 @@
 
   The `bids` and `asks` are series of {:price <bigdec>, :qty <bigdec>} levels,
   and tick/lot size are the minimum price and quantity increments for the order
-  book."
-  [{:keys [bids asks timestamp tick-size lot-size] :as data}]
-  (map->OrderBookSnapshot data))
+  book.
+
+  If the :redundant? flag is true, it means that the snapshot contains no new
+  information. After reading a series of snapshots and diffs, and then
+  encountering a :redundant? snapshot, the reader can compare the snapshot
+  contents against the order book stored in memory to verify the correctness
+  of the order book."
+  [{:keys [bids asks timestamp tick-size lot-size redundant?]
+    :or   {redundant? false}
+    :as   data}]
+  (map->OrderBookSnapshot (assoc data :redundant? redundant?)))
 
 
 (defrecord OrderBookDiff [price qty bid? timestamp snapshot-delay])
