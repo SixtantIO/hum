@@ -10,6 +10,9 @@
   Tick and lot sizes are each represented with one byte for the value and
   another for the scale. E.g. a tick size of 0.25 is represented as [25 2].
 
+  All byte values correspond to unsigned integers, except for tick and lot
+  scale, which are signed integers.
+
 
       +--------------+-----------+--------+------------+--------+-----------+-------------+--------------------+
       |  Price Bits  | Qty Bits  |  Tick  | Tick Scale |  Lot   | Lot Scale | # of Levels |        Levels      |
@@ -44,11 +47,11 @@
 
 (def header-codec ; codec for all fields except the levels
   (b/ordered-map
-    :pbits            :byte
-    :qbits            :byte
-    :tick             :byte
+    :pbits            :ubyte
+    :qbits            :ubyte
+    :tick             :ubyte
     :tick-scale       :byte
-    :lot              :byte
+    :lot              :ubyte
     :lot-scale        :byte
     :nlevels          :ushort))
 
@@ -70,7 +73,11 @@
 (defn write-snapshot
   "Write a messages/OrderBookSnapshot to `out` and return a _serialization
   context_ including field size information used to read and write diff
-  messages."
+  messages.
+
+  The snapshot may optionally include :min-price and :min-qty attributes which
+  signify that, at a minimum, field lengths need to be wide enough to write
+  the given price/qty."
   [snapshot ctx ^OutputStream out]
   (let [{:keys [^BigDecimal tick-size ^BigDecimal lot-size bids asks]}
         snapshot]
@@ -78,10 +85,20 @@
           [tick tick-scale] (u/dec-as-ints tick-size)
           [lot lot-scale] (u/dec-as-ints lot-size)
 
-          ;; The serialized message, without the levels
-          header {:pbits (u/max-price-bits tick-size asks)
+          min-price (get snapshot :min-price 0M)
+          pbits (max
+                  (.bitLength ^BigInteger (u/->ticks min-price tick-size))
+                  (u/max-price-bits tick-size asks))
+
+          min-qty (get snapshot :min-qty 0M)
+          qbits (max
+                  (.bitLength ^BigInteger (u/->lots min-qty lot-size))
                   ; allow for 2x the max qty to occur
-                  :qbits (inc (u/max-qty-bits lot-size (concat asks bids)))
+                  (inc (u/max-qty-bits lot-size (concat asks bids))))
+
+          ;; The serialized message, without the levels
+          header {:pbits pbits
+                  :qbits qbits
                   :tick tick
                   :tick-scale tick-scale
                   :lot lot
