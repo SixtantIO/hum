@@ -9,7 +9,7 @@ This library encodes the following data:
   - Order book diffs (L2)
   - Trades
   - Disconnect events, to differentiate between a few seconds spent reconnecting 
-    to the exchange and a few seconds with no activity (TODO)
+    to the exchange after a network error and a few seconds with no activity
     
 
 Quick example (see [example with buffers](#example) for something more complete):
@@ -40,7 +40,7 @@ Quick example (see [example with buffers](#example) for something more complete)
 ;=> #object["[B" 0x241fa40 "[B@241fa40"]
 
 (vec *1)
-;=> [8 0 0 0 0 1 120 40 -77 -54 55 48 0 0 18 10 5 1 1 1 0 2 12 12 106 24 -10 9 -25 24 68 0 0 -112 -48 47 3]
+;=> [8 0 0 0 0 1 120 40 -35 -54 89 49 0 0 0 18 10 5 1 1 1 0 2 12 12 106 24 -10 9 -25 24 68 3 -33 -112 -48 47 3]
 
 
 ;; Eagerly read all messages from an input stream or byte array
@@ -49,12 +49,14 @@ Quick example (see [example with buffers](#example) for something more complete)
 ;                                               :asks [{:price 102000.5M, :qty 50.2M}],
 ;                                               :timestamp 1615590574647,
 ;                                               :tick-size 0.5M,
-;                                               :lot-size 0.1M}
+;                                               :lot-size 0.1M
+;                                               :type :order-book-snapshot}
 ;    #io.sixtant.hum.messages.OrderBookDiff{:price 125000.0M,
 ;                                           :qty 20.3M,
 ;                                           :bid? false,
 ;                                           :timestamp 1615590574647,
-;                                           :snapshot-delay nil}]
+;                                           :snapshot-delay nil
+;                                           :type :order-book-diff}]
 ```
 
 ## Design Goals
@@ -162,23 +164,23 @@ from these comparatively low level message types for writing or reading data.
   (writer diff)
   (println "Diff bytes" (vec (.toByteArray out))))
 
-; Snapshot bytes [8 0 0 0 0 1 120 40 -77 -54 55 48 0 0 18 10 5 1 1 1 0 2 12 12 106 24 -10 9 -25 24]
-; Diff bytes [68 0 0 -112 -48 47 3]
+; Snapshot bytes [8 0 0 0 0 1 120 40 -35 -54 89 49 0 0 0 18 10 5 1 1 1 0 2 12 12 106 24 -10 9 -25 24]
+; Diff bytes [68 3 -33 -112 -48 47 3]
 
 ;; Reading
 (def some-bytes
-  [8 0 0 0 0 1 120 40 -77 -54
-   55 48 0 0 18 10 5 1 1 1 0
-   2 12 12 106 24 -10 9 -25
-   24 68 0 0 -112 -48 47 3])
+  [8 0 0 0 0 1 120 40 -35 -54
+   89 49 0 0 0 18 10 5 1 1 1
+   0 2 12 12 106 24 -10 9 -25
+   24 68 3 -33 -112 -48 47 3])
 
 (with-open [rdr (hum/reader (ByteArrayInputStream. (byte-array some-bytes)))]
   ;; Invoke the reader to read a single message, or nil if EOF.
   (println "First:" (rdr))
   (println "Second:" (rdr))
   (println "Third:" (rdr)))
-; First: #io.sixtant.hum.messages.OrderBookSnapshot{:bids [{:price 100000.5M, :qty 1.2M}], :asks [{:price 102000.5M, :qty 50.2M}], :timestamp 1615590574647, :tick-size 0.5M, :lot-size 0.1M}
-; Second: #io.sixtant.hum.messages.OrderBookDiff{:price 125000.0M, :qty 20.3M, :bid? false, :timestamp 1615590574647, :snapshot-delay nil}
+; First: #io.sixtant.hum.messages.OrderBookSnapshot{:bids [{:price 100000.5M, :qty 1.2M}], :asks [{:price 102000.5M, :qty 50.2M}], :timestamp 1615593327193, :tick-size 0.5M, :lot-size 0.1M, :redundant? false, :type :order-book-snapshot}
+; Second: #io.sixtant.hum.messages.OrderBookDiff{:price 125000.0M, :qty 20.3M, :bid? false, :timestamp 1615593328184, :snapshot-delay nil, :type :order-book-diff}
 ; Third: nil
 ```
 
@@ -226,11 +228,11 @@ BENCHMARK RESULTS (ARTHUR)
 
 |                   |     ARTHUR (BitMEX XBTUSD) |      ARTHUR (Bitso BTCMXN) |     ARTHUR (Bitso ETHMXN) |     ARTHUR (Bitso BTCARS) |        ARTHUR (FTX BTCUSD) |        ARTHUR (FTX ETHUSD) |
 |-------------------+----------------------------+----------------------------+---------------------------+---------------------------+----------------------------+----------------------------|
-|    Median Read μs |                       4.16 |                       4.32 |                       4.3 |                      4.35 |                       4.04 |                       3.92 |
-|   Median Write μs |                       4.33 |                       4.11 |                      4.64 |                      4.38 |                       3.53 |                       3.57 |
-|    Snapshot Bytes |                      75314 |                      43532 |                     25762 |                      7098 |                       1026 |                       1026 |
+|    Median Read μs |                        4.0 |                       4.25 |                      4.14 |                      4.17 |                       3.89 |                       3.91 |
+|   Median Write μs |                       3.94 |                       3.92 |                      5.24 |                      3.89 |                       3.83 |                       3.69 |
+|    Snapshot Bytes |                      75315 |                      43533 |                     25763 |                      7099 |                       1027 |                       1027 |
 |        Diff Bytes |                          9 |                          7 |                        10 |                         7 |                          5 |                          7 |
-|   Serialized Size |                    4372398 |                    1333105 |                    704918 |                    579875 |                    1798449 |                    1155457 |
+|   Serialized Size |                    4372399 |                    1333106 |                    704919 |                    579876 |                    1798450 |                    1155458 |
 |       # of Events |                     521910 |                     143844 |                     77432 |                     67227 |                     294030 |                     186353 |
 |    ASCII EDN Size | 50838004 (codec is 0.086x) | 13426947 (codec is 0.099x) | 7139351 (codec is 0.099x) | 6371725 (codec is 0.091x) | 15660696 (codec is 0.115x) | 10525217 (codec is 0.110x) |
 |  Gzipped EDN Size |  4936548 (codec is 0.886x) |  1362716 (codec is 0.978x) |  741442 (codec is 0.951x) |  580405 (codec is 0.999x) |  1436078 (codec is 1.252x) |   999134 (codec is 1.156x) |
@@ -324,6 +326,12 @@ and lots instead of decimal prices and quantities (as does the book diff
 encoding). Therefore, in addition to ask and bid levels, the snapshot contains
 the tick and lot sizes.
 
+The very first byte of the snapshot represents whether the snapshot is
+redundant, i.e. contains no new information. This is useful because such
+snapshots can be used as a checksum by the reader, to check that the book
+has been encoded and replayed correctly. In this case, the :redundant? flag
+in the snapshot message is true, and the byte value is 1.
+
 Tick and lot sizes are each represented with one byte for the value and
 another for the scale. E.g. a tick size of 0.25 is represented as [25 2].
 
@@ -331,10 +339,10 @@ All byte values correspond to unsigned integers, except for tick and lot
 scale, which are signed integers.
 
 
-    +--------------+-----------+--------+------------+--------+-----------+-------------+--------------------+
-    |  Price Bits  | Qty Bits  |  Tick  | Tick Scale |  Lot   | Lot Scale | # of Levels |        Levels      |
-    |    1 byte    |  1 byte   | 1 byte |    1 byte  | 1 byte |   1 byte  |   2 bytes   |  (Variable Length) |
-    +--------------+-----------+--------+------------+--------+-----------+-------------+--------------------+
+    +------------+--------------+-----------+--------+------------+--------+-----------+-------------+--------------------+
+    | Redundant? |  Price Bits  | Qty Bits  |  Tick  | Tick Scale |  Lot   | Lot Scale | # of Levels |        Levels      |
+    |   1 byte   |    1 byte    |  1 byte   | 1 byte |    1 byte  | 1 byte |   1 byte  |   2 bytes   |  (Variable Length) |
+    +------------+--------------+-----------+--------+------------+--------+-----------+-------------+--------------------+
 
 The snapshot additionally contains information about the field sizes for tick
 and lot sizes. This allows the encoding to be relatively aggressive about
@@ -411,3 +419,9 @@ as an unsigned long. Otherwise, it is a UTF-8 string.
     +-------+-------+------------+-------------+-----------------+
 
 </clojure-docs>
+
+### Disconnect 
+
+Disconnect events have no information in their message body, just a single byte
+with no significance. Their information (that it's a disconnect event at a 
+certain time) is completely communicated by the message frame.

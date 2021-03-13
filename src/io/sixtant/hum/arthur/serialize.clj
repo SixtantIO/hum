@@ -114,30 +114,30 @@
   (let [[snap ctx] (snap/read-snapshot (frame-bytes frame))
         ctx (merge context ctx)
         ts (+ (:timestamp ctx) (:timestamp-offset frame))]
-    [ctx (assoc snap :timestamp ts)]))
+    [ctx (assoc snap :timestamp ts :type :order-book-snapshot)]))
 
 
 (defn read-diff [frame context bid?]
   (let [diff (diff/read-diff context bid? (frame-bytes frame))
         ts (+ (:timestamp context) (:timestamp-offset frame))]
-    [context (assoc diff :timestamp ts)]))
+    [context (assoc diff :timestamp ts :type :order-book-diff)]))
 
 
 (defn read-removal [frame context bid?]
   (let [diff (diff/read-removal context bid? (frame-bytes frame))
         ts (+ (:timestamp context) (:timestamp-offset frame))]
-    [context (assoc diff :timestamp ts)]))
+    [context (assoc diff :timestamp ts :type :order-book-diff)]))
 
 
 (defn read-trade [frame context]
   (let [trade (trade/read-trade context (frame-bytes frame))
         ts (+ (:timestamp context) (:timestamp-offset frame))]
-    [context (assoc trade :timestamp ts)]))
+    [context (assoc trade :timestamp ts :type :trade)]))
 
 
 (defn read-disconnect [frame context]
   (let [ts (+ (:timestamp context) (:timestamp-offset frame))]
-    [context (messages/disconnect {:timestamp ts})]))
+    [context (messages/disconnect {:timestamp ts :type :disconnect})]))
 
 
 (defn message

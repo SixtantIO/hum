@@ -53,7 +53,8 @@
   [{:keys [bids asks timestamp tick-size lot-size redundant?]
     :or   {redundant? false}
     :as   data}]
-  (map->OrderBookSnapshot (assoc data :redundant? redundant?)))
+  (map->OrderBookSnapshot
+    (assoc data :redundant? redundant? :type :order-book-snapshot)))
 
 
 (defrecord OrderBookDiff [price qty bid? timestamp snapshot-delay])
@@ -67,7 +68,7 @@
   message. See the README or book_snapshot.clj for more information about why
   this is the case."
   [{:keys [price qty bid? timestamp snapshot-delay] :as data}]
-  (map->OrderBookDiff data))
+  (map->OrderBookDiff (assoc data :type :order-book-diff)))
 
 
 (defrecord Trade [price qty maker-is-bid? tid timestamp snapshot-delay])
@@ -86,7 +87,7 @@
   message. See the README or book_snapshot.clj for more information about why
   this is the case."
   [{:keys [price qty maker-is-bid? tid timestamp snapshot-delay] :as data}]
-  (map->Trade data))
+  (map->Trade (assoc data :type :trade)))
 
 
 (defrecord Disconnect [timestamp])
@@ -98,5 +99,5 @@
   To differentiate between quiet order book periods and small time intervals
   spent reconnecting to the exchange, in the inevitable event of a network
   error."
-  [{:keys [timestamp]}]
-  (->Disconnect timestamp))
+  [{:keys [timestamp] :as data}]
+  (map->Disconnect (assoc data :type :disconnect)))
