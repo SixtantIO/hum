@@ -1,4 +1,4 @@
-(defproject io.sixtant.hum "0.1.0"
+(defproject io.sixtant/hum "0.1.0"
   :description "An experimental library for efficient binary serialization of L2 book data."
   :dependencies [[org.clojure/clojure "1.10.1"]
 
