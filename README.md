@@ -215,7 +215,7 @@ if they overflow, it simply writes `(-> diff :snapshot-delay deref)` instead.
 ## Benchmarks
 
 Run at the REPL, using the [io.sixtant.hum.benchmark](src/io/sixtant/hum/benchmark.clj)
-namespace, or via `lein bench`.
+namespace, or via `clj -M:bench`.
 
 Here are the benchmark results for the (only) codec, named ARTHUR in honor
 of [the most prolific producer](https://www.bitmex.com/) of L2 order book data,

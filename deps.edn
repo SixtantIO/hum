@@ -1,0 +1,14 @@
+{:deps    {org.clojure/clojure {:mvn/version "1.10.3"}
+           smee/binary         {:mvn/version "0.5.5"} ; binary (de)serialization
+           com.taoensso/timbre {:mvn/version "5.1.0"} ; logging
+           com.taoensso/tufte  {:mvn/version "2.2.0"} ; benchmarking
+           com.taoensso/encore {:mvn/version "3.8.0"}}
+ :aliases {:test  {:extra-paths ["test"]
+                   :extra-deps {io.github.cognitect-labs/test-runner
+                                {:git/url "https://github.com/cognitect-labs/test-runner.git"
+                                 :sha "d579a19d058993085b9e3ba5247c89f3f3318b47"}}
+                   :main-opts ["-m" "cognitect.test-runner"]
+            :exec-fn cognitect.test-runner.api/test}
+           :bench {:main-opts ["-m" "io.sixtant.hum.benchmark"]
+                   :extra-paths ["resources/"]}
+           :docs  {:main-opts ["-m" "io.sixtant.hum.docs"]}}}
